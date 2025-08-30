@@ -1,0 +1,5 @@
+{
+  "name": "Online Voting System",
+  "description": "A comprehensive online voting system with an admin management portal for election directors and a registration portal for voters. Admins can manage candidates, voters, deadlines, and view results. Voters can register to participate in elections.",
+  "requestFramePermissions": []
+}
