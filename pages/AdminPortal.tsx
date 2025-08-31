@@ -39,7 +39,9 @@ const AdminPortal: React.FC = () => {
     // Data State
     const [dashboardStats, setDashboardStats] = useState({ candidates: 0, voters: 0, votes: 0 });
     const [deadline, setDeadline] = useState('');
+    const [deadlineRaw, setDeadlineRaw] = useState('');
     const [registrationDeadline, setRegistrationDeadline] = useState('');
+    const [registrationDeadlineRaw, setRegistrationDeadlineRaw] = useState('');
     const [timeRemaining, setTimeRemaining] = useState('');
     const [electionStatus, setElectionStatus] = useState<'Preparing' | 'Active' | 'Ended'>('Preparing');
     const [isRegistrationActive, setIsRegistrationActive] = useState(true);
@@ -102,9 +104,11 @@ const AdminPortal: React.FC = () => {
         if (data && data.value) {
             const deadlineDate = new Date(data.value);
             setDeadline(deadlineDate.toLocaleString());
+            setDeadlineRaw(data.value);
             setDeadlineInput(data.value.substring(0, 16));
         } else {
             setDeadline('Not set');
+            setDeadlineRaw('');
             setDeadlineInput('');
         }
     }, []);
@@ -114,9 +118,11 @@ const AdminPortal: React.FC = () => {
         if (data && data.value) {
             const deadlineDate = new Date(data.value);
             setRegistrationDeadline(deadlineDate.toLocaleString());
+            setRegistrationDeadlineRaw(data.value);
             setRegistrationDeadlineInput(data.value.substring(0, 16));
         } else {
             setRegistrationDeadline('Not set');
+            setRegistrationDeadlineRaw('');
             setRegistrationDeadlineInput('');
         }
     }, []);
@@ -214,12 +220,12 @@ const AdminPortal: React.FC = () => {
 
     useEffect(() => {
         const calculateTimeRemaining = () => {
-            if (!deadline || deadline === 'Not set') {
+            if (!deadlineRaw) {
                 setElectionStatus('Preparing');
                 setTimeRemaining('--');
                 return;
             }
-            const deadlineDate = new Date(deadline);
+            const deadlineDate = new Date(deadlineRaw);
             const now = new Date();
             const diff = deadlineDate.getTime() - now.getTime();
 
@@ -244,17 +250,17 @@ const AdminPortal: React.FC = () => {
         calculateTimeRemaining();
         const interval = setInterval(calculateTimeRemaining, 60000);
         return () => clearInterval(interval);
-    }, [deadline]);
+    }, [deadlineRaw]);
 
     useEffect(() => {
-        if (!registrationDeadline || registrationDeadline === 'Not set') {
+        if (!registrationDeadlineRaw) {
             setIsRegistrationActive(true); // Default to open if not set for admin flexibility
             return;
         }
-        const deadlineDate = new Date(registrationDeadline);
+        const deadlineDate = new Date(registrationDeadlineRaw);
         const now = new Date();
         setIsRegistrationActive(deadlineDate.getTime() > now.getTime());
-    }, [registrationDeadline]);
+    }, [registrationDeadlineRaw]);
     
     // --- ACTIONS ---
 
