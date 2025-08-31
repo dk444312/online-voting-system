@@ -56,6 +56,13 @@ const AdminPortal: React.FC = () => {
     const [newAdminPassword, setNewAdminPassword] = useState('');
     const [deadlineInput, setDeadlineInput] = useState('');
     const [formMessage, setFormMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+    
+    // Voter management state
+    const [voterSearchTerm, setVoterSearchTerm] = useState('');
+    const [voterSortKey, setVoterSortKey] = useState<'username' | 'created_at' | 'has_voted' | 'voter_type'>('created_at');
+    const [voterSortOrder, setVoterSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [voterStatusFilter, setVoterStatusFilter] = useState<'all' | 'voted' | 'pending'>('all');
+    const [voterTypeFilter, setVoterTypeFilter] = useState<'all' | 'physical' | 'online'>('all');
 
 
     // --- AUTHENTICATION ---
@@ -83,9 +90,8 @@ const AdminPortal: React.FC = () => {
     const fetchDashboardStats = useCallback(async () => {
         const { count: candidatesCount } = await supabase.from('candidates').select('*', { count: 'exact', head: true });
         const { count: votersCount } = await supabase.from('voters').select('*', { count: 'exact', head: true });
-        const { count: onlineVotersVotedCount } = await supabase.from('voters').select('*', { count: 'exact', head: true }).eq('has_voted', true);
-        const { count: physicalVotesCount } = await supabase.from('physical_votes').select('*', { count: 'exact', head: true });
-        setDashboardStats({ candidates: candidatesCount || 0, voters: votersCount || 0, votes: (onlineVotersVotedCount || 0) + (physicalVotesCount || 0) });
+        const { count: votesCastCount } = await supabase.from('voters').select('*', { count: 'exact', head: true }).eq('has_voted', true);
+        setDashboardStats({ candidates: candidatesCount || 0, voters: votersCount || 0, votes: votesCastCount || 0 });
     }, []);
 
     const fetchDeadline = useCallback(async () => {
@@ -413,6 +419,48 @@ const AdminPortal: React.FC = () => {
 
     // --- RENDER LOGIC ---
 
+    const filteredAndSortedVoters = voters
+    .filter(voter => {
+        // Type filter
+        if (voterTypeFilter === 'all') return true;
+        const isPhysical = /[0-9]/.test(voter.username);
+        if (voterTypeFilter === 'physical') return isPhysical;
+        if (voterTypeFilter === 'online') return !isPhysical;
+        return true;
+    })
+    .filter(voter => {
+        // Status filter
+        if (voterStatusFilter === 'voted') return voter.has_voted;
+        if (voterStatusFilter === 'pending') return !voter.has_voted;
+        return true;
+    })
+    .filter(voter => 
+        // Search term filter
+        voter.username.toLowerCase().includes(voterSearchTerm.toLowerCase()) ||
+        (voter.full_name && voter.full_name.toLowerCase().includes(voterSearchTerm.toLowerCase())) ||
+        (voter.registration_number && voter.registration_number.toLowerCase().includes(voterSearchTerm.toLowerCase()))
+    )
+    .sort((a, b) => {
+        let comparison = 0;
+        if (voterSortKey === 'voter_type') {
+            const typeA = /[0-9]/.test(a.username) ? 'Physical' : 'Online';
+            const typeB = /[0-9]/.test(b.username) ? 'Physical' : 'Online';
+            comparison = typeA.localeCompare(typeB);
+        } else {
+            const key = voterSortKey as 'username' | 'created_at' | 'has_voted';
+            const valA = a[key];
+            const valB = b[key];
+
+            if (valA > valB) {
+                comparison = 1;
+            } else if (valA < valB) {
+                comparison = -1;
+            }
+        }
+
+        return voterSortOrder === 'asc' ? comparison : -comparison;
+    });
+
     const FormMessage: React.FC = () => {
         if (!formMessage) return null;
         const baseClasses = 'p-3 rounded-lg text-center mt-4';
@@ -445,7 +493,13 @@ const AdminPortal: React.FC = () => {
                             <i className="fas fa-user-check text-4xl mb-2"></i><h4 className="font-bold text-lg">Registered Voters</h4><p className="text-4xl font-bold">{dashboardStats.voters}</p>
                         </div>
                         <div className="bg-gradient-to-br from-cyan-400 to-sky-500 text-white p-6 rounded-xl shadow-lg text-center">
-                            <i className="fas fa-vote-yea text-4xl mb-2"></i><h4 className="font-bold text-lg">Votes Cast</h4><p className="text-4xl font-bold">{dashboardStats.votes}</p>
+                            <i className="fas fa-vote-yea text-4xl mb-2"></i><h4 className="font-bold text-lg">Votes Cast</h4>
+                            <p className="text-4xl font-bold">{dashboardStats.votes}</p>
+                            {dashboardStats.voters > 0 && (
+                                <p className="text-sm opacity-80 mt-1">
+                                    ({((dashboardStats.votes / dashboardStats.voters) * 100).toFixed(1)}% turnout)
+                                </p>
+                            )}
                         </div>
                     </div>
                     <button onClick={loadAllData} className="mt-8 w-full max-w-sm mx-auto flex justify-center items-center gap-2 bg-slate-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-800 transition-colors"><i className="fas fa-sync-alt"></i>Refresh Dashboard</button>
@@ -477,8 +531,9 @@ const AdminPortal: React.FC = () => {
                     <h3 className="text-xl font-semibold mb-4 text-center">Candidates List</h3>
                     <div className="space-y-4 max-h-96 overflow-y-auto p-2">
                         {candidates.length === 0 ? <p className="text-center text-gray-500">No candidates added yet.</p> :
-                            candidates.map(c => (
+                            candidates.map((c, index) => (
                                 <div key={c.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                    <span className="font-mono text-gray-500 w-8 text-center text-lg">{index + 1}.</span>
                                     <img src={c.photo_url} alt={c.name} className="w-16 h-16 rounded-full object-cover"/>
                                     <div className="flex-grow">
                                         <p className="font-bold text-lg">{c.name}</p>
@@ -491,34 +546,124 @@ const AdminPortal: React.FC = () => {
                     </div>
                 </Page>
             );
-            case 'VOTERS': return (
-                 <Page title="Manage Online Voters">
-                    <form onSubmit={handleAddVoter} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
-                        <h3 className="text-xl font-semibold mb-4 text-center">Add Online Voter</h3>
-                        <div className="space-y-4">
-                            <input type="text" placeholder="Voter Username" value={voterUsername} onChange={e => setVoterUsername(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <input type="password" placeholder="Voter Password" value={voterPassword} onChange={e => setVoterPassword(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Voter</button>
+            case 'VOTERS': {
+                const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+                const onlineVotersCount = voters.length - physicalVotersCount;
+
+                const voterNumberMap = new Map<string, number>();
+                voters
+                    .slice()
+                    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    .forEach((voter, index) => {
+                        voterNumberMap.set(voter.id, index + 1);
+                    });
+
+                return (
+                    <Page title="Manage Voters">
+                       <form onSubmit={handleAddVoter} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
+                           <h3 className="text-xl font-semibold mb-4 text-center">Add Online Voter</h3>
+                           <div className="space-y-4">
+                               <input type="text" placeholder="Voter Username" value={voterUsername} onChange={e => setVoterUsername(e.target.value)} className="w-full p-3 border rounded-lg" />
+                               <input type="password" placeholder="Voter Password" value={voterPassword} onChange={e => setVoterPassword(e.target.value)} className="w-full p-3 border rounded-lg" />
+                               <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Voter</button>
+                           </div>
+                           <FormMessage />
+                       </form>
+                       <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
+                       
+                       <div className="grid grid-cols-3 gap-4 mb-4 text-center p-4 bg-gray-50 rounded-lg border">
+                            <div>
+                                <h4 className="font-semibold text-gray-600 text-sm sm:text-base">Total</h4>
+                                <p className="text-2xl font-bold">{voters.length}</p>
+                            </div>
+                            <div>
+                                <h4 className="font-semibold text-gray-600 text-sm sm:text-base">Physical</h4>
+                                <p className="text-2xl font-bold">{physicalVotersCount}</p>
+                            </div>
+                            <div>
+                                <h4 className="font-semibold text-gray-600 text-sm sm:text-base">Online</h4>
+                                <p className="text-2xl font-bold">{onlineVotersCount}</p>
+                            </div>
                         </div>
-                        <FormMessage />
-                    </form>
-                    <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
-                    <div className="space-y-4 max-h-96 overflow-y-auto p-2">
-                         {voters.length === 0 ? <p className="text-center text-gray-500">No voters registered yet.</p> :
-                            voters.map(v => (
-                                <div key={v.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
-                                    <div className="flex-grow">
-                                        <p className="font-semibold">{v.username}</p>
-                                        {v.full_name && <p className="text-sm text-gray-500">{v.full_name} ({v.registration_number})</p>}
-                                    </div>
-                                    <span className={`text-sm font-semibold ${v.has_voted ? 'text-green-600' : 'text-yellow-600'}`}>{v.has_voted ? 'Voted' : 'Pending'}</span>
-                                    <button onClick={() => handleDeleteVoter(v.id)} className="text-red-500 hover:text-red-700 text-xl"><i className="fas fa-trash"></i></button>
-                                </div>
-                            ))
-                        }
-                    </div>
-                </Page>
-            );
+
+                       {/* --- Filtering and Sorting Controls --- */}
+                       <div className="mb-4 p-4 bg-slate-50 rounded-lg border space-y-4">
+                           <div className="relative">
+                               <input
+                                   type="text"
+                                   placeholder="Search by name, username, reg number..."
+                                   value={voterSearchTerm}
+                                   onChange={e => setVoterSearchTerm(e.target.value)}
+                                   className="w-full p-3 pl-10 border rounded-lg"
+                               />
+                               <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                           </div>
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <div className="flex items-center justify-center space-x-1 sm:space-x-2 bg-gray-200 rounded-lg p-1">
+                                   <button onClick={() => setVoterStatusFilter('all')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${voterStatusFilter === 'all' ? 'bg-white shadow' : 'text-gray-600'}`}>All</button>
+                                   <button onClick={() => setVoterStatusFilter('voted')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${voterStatusFilter === 'voted' ? 'bg-white shadow' : 'text-gray-600'}`}>Voted</button>
+                                   <button onClick={() => setVoterStatusFilter('pending')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${voterStatusFilter === 'pending' ? 'bg-white shadow' : 'text-gray-600'}`}>Pending</button>
+                               </div>
+                               <div className="flex items-center justify-center space-x-1 sm:space-x-2 bg-gray-200 rounded-lg p-1">
+                                   <button onClick={() => setVoterTypeFilter('all')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${voterTypeFilter === 'all' ? 'bg-white shadow' : 'text-gray-600'}`}>All Types</button>
+                                   <button onClick={() => setVoterTypeFilter('physical')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${voterTypeFilter === 'physical' ? 'bg-white shadow' : 'text-gray-600'}`}>Physical</button>
+                                   <button onClick={() => setVoterTypeFilter('online')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${voterTypeFilter === 'online' ? 'bg-white shadow' : 'text-gray-600'}`}>Online</button>
+                               </div>
+                           </div>
+                           <div className="flex flex-wrap items-center justify-between gap-4">
+                               <div className="flex items-center gap-2">
+                                   <label htmlFor="sort-voters" className="text-sm font-medium text-gray-700">Sort by:</label>
+                                   <select
+                                       id="sort-voters"
+                                       value={voterSortKey}
+                                       onChange={e => setVoterSortKey(e.target.value as typeof voterSortKey)}
+                                       className="p-2 border rounded-lg text-sm bg-white"
+                                   >
+                                       <option value="created_at">Date Added</option>
+                                       <option value="username">Username</option>
+                                       <option value="has_voted">Vote Status</option>
+                                       <option value="voter_type">Voter Type</option>
+                                   </select>
+                               </div>
+                               <button onClick={() => setVoterSortOrder(voterSortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 px-3 border rounded-lg text-gray-600 hover:bg-gray-100 flex items-center gap-2 text-sm">
+                                   {voterSortOrder === 'asc' ? <><i className="fas fa-sort-amount-up"></i> Asc</> : <><i className="fas fa-sort-amount-down-alt"></i> Desc</>}
+                               </button>
+                           </div>
+                       </div>
+    
+                       <div className="space-y-4 max-h-96 overflow-y-auto p-2">
+                            {filteredAndSortedVoters.length === 0 ? <p className="text-center text-gray-500">No voters match your criteria.</p> :
+                               filteredAndSortedVoters.map((v: any) => {
+                                    const isPhysical = /[0-9]/.test(v.username);
+                                    const voterTypeLabel = isPhysical ? 'Physical' : 'Online';
+                                    const labelColorClasses = isPhysical ? 'text-purple-800 bg-purple-100' : 'text-blue-800 bg-blue-100';
+                                    const voterNumber = voterNumberMap.get(v.id);
+    
+                                    return (
+                                        <div key={v.id} className="flex items-start justify-between gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                            <div className="flex-grow flex items-start">
+                                                <span className="font-mono text-gray-500 w-8 text-right pt-0.5 pr-2 flex-shrink-0">{voterNumber}.</span>
+                                                <div className="flex-grow">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <p className="font-semibold">{v.username}</p>
+                                                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${labelColorClasses}`}>{voterTypeLabel}</span>
+                                                    </div>
+                                                    {v.full_name && <p className="text-sm text-gray-500">{v.full_name} ({v.registration_number})</p>}
+                                                    {v.created_at && <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><i className="far fa-clock"></i>{new Date(v.created_at).toLocaleString()}</p>}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                                                <span className={`text-sm font-semibold px-2 py-1 rounded-full ${v.has_voted ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{v.has_voted ? 'Voted' : 'Pending'}</span>
+                                                <button onClick={() => handleDeleteVoter(v.id)} className="text-red-500 hover:text-red-700 text-xl pt-1"><i className="fas fa-trash"></i></button>
+                                            </div>
+                                       </div>
+                                   );
+                               })
+                           }
+                       </div>
+                   </Page>
+                );
+            }
             case 'ADMINS': return (
                  <Page title="Manage Admins">
                     <form onSubmit={handleAddAdmin} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
@@ -532,10 +677,11 @@ const AdminPortal: React.FC = () => {
                     </form>
                     <h3 className="text-xl font-semibold mb-4 text-center">Registered Admins</h3>
                     <div className="space-y-4 max-h-96 overflow-y-auto p-2">
-                        {admins.map(a => (
+                        {admins.map((a, index) => (
                             <div key={a.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                <span className="font-mono text-gray-500 w-8 text-left">{index + 1}.</span>
                                 <i className="fas fa-user-shield text-blue-500 text-xl"></i>
-                                <p className="font-semibold">{a.username}</p>
+                                <p className="font-semibold flex-grow">{a.username}</p>
                             </div>
                         ))}
                     </div>
@@ -549,14 +695,17 @@ const AdminPortal: React.FC = () => {
                                 <div key={pos.position} className="p-4 border rounded-lg">
                                     <h3 className="text-xl font-bold mb-4">{pos.position}</h3>
                                     <div className="space-y-3">
-                                        {pos.candidates.map((c: any) => (
-                                            <div key={c.id}>
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="font-semibold">{c.name}</span>
-                                                    <span className="text-sm font-bold text-blue-600">{c.votes} votes ({c.percentage}%)</span>
-                                                </div>
-                                                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                                    <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${c.percentage}%` }}></div>
+                                        {pos.candidates.map((c: any, index: number) => (
+                                            <div key={c.id} className="flex items-start gap-3">
+                                                <span className="font-mono text-gray-600 pt-1 w-6 text-left">{index + 1}.</span>
+                                                <div className="flex-grow">
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <span className="font-semibold">{c.name}</span>
+                                                        <span className="text-sm font-bold text-blue-600">{c.votes} votes ({c.percentage}%)</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                                        <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${c.percentage}%` }}></div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
