@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import type { Director, Candidate, Voter, Admin } from '../types';
+import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
-type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'ADMINS' | 'RESULTS';
+type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS';
 
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
@@ -47,6 +47,7 @@ const AdminPortal: React.FC = () => {
     const [isRegistrationActive, setIsRegistrationActive] = useState(true);
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const [voters, setVoters] = useState<Voter[]>([]);
+    const [registrations, setRegistrations] = useState<Registration[]>([]);
     const [admins, setAdmins] = useState<Admin[]>([]);
     const [results, setResults] = useState<any[]>([]);
     
@@ -54,13 +55,14 @@ const AdminPortal: React.FC = () => {
     const [candidateName, setCandidateName] = useState('');
     const [candidatePosition, setCandidatePosition] = useState('');
     const [candidatePhoto, setCandidatePhoto] = useState<File | null>(null);
-    const [voterUsername, setVoterUsername] = useState('');
-    const [voterPassword, setVoterPassword] = useState('');
     const [newAdminUsername, setNewAdminUsername] = useState('');
     const [newAdminPassword, setNewAdminPassword] = useState('');
     const [deadlineInput, setDeadlineInput] = useState('');
     const [registrationDeadlineInput, setRegistrationDeadlineInput] = useState('');
     const [formMessage, setFormMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+    const [regNumber, setRegNumber] = useState('');
+    const [studentName, setStudentName] = useState('');
+    const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
     
     // Voter management state
     const [voterSearchTerm, setVoterSearchTerm] = useState('');
@@ -137,6 +139,11 @@ const AdminPortal: React.FC = () => {
         setVoters(data || []);
     }, []);
 
+    const fetchRegistrations = useCallback(async () => {
+        const { data } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
+        setRegistrations(data || []);
+    }, []);
+
     const fetchAdmins = useCallback(async () => {
         const { data } = await supabase.from('directors').select('*').order('created_at');
         setAdmins(data || []);
@@ -209,8 +216,8 @@ const AdminPortal: React.FC = () => {
 
 
     const loadAllData = useCallback(async () => {
-        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchAdmins(), fetchResults()]);
-    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchAdmins, fetchResults]);
+        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults()]);
+    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults]);
 
     useEffect(() => {
         if (currentUser) {
@@ -302,6 +309,7 @@ const AdminPortal: React.FC = () => {
                 await supabase.from('physical_votes').delete().neq('id', 0);
                 await supabase.from('candidates').delete().neq('id', 0);
                 await supabase.from('voters').delete().neq('id', 0);
+                await supabase.from('registrations').delete().neq('id', 0);
                 await supabase.from('settings').delete().eq('key', 'voting_deadline');
                 await supabase.from('settings').delete().eq('key', 'registration_deadline');
                 alert('Election data has been reset.');
@@ -370,38 +378,66 @@ const AdminPortal: React.FC = () => {
             }
         }
     };
-    
-    const handleAddVoter = async (e: React.FormEvent) => {
+
+    const handleAddOrUpdateRegistration = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!isRegistrationActive) {
-            setFormMessage({type: 'error', text: 'The registration period has ended.'});
-            return;
-        }
-        if (!voterUsername || !voterPassword) {
-            setFormMessage({type: 'error', text: 'Username and password are required.'});
+        if (!regNumber || !studentName) {
+            setFormMessage({ type: 'error', text: 'Registration number and student name are required.' });
             return;
         }
         setLoading(true);
         setFormMessage(null);
         try {
-            const { data: existing } = await supabase.from('voters').select('id').eq('username', voterUsername).maybeSingle();
-            if(existing) throw new Error('Username already exists.');
-
-            const { error } = await supabase.from('voters').insert([{ username: voterUsername, password: voterPassword, has_voted: false }]);
-            if(error) throw error;
+            let error;
+            if (editingRegistration) {
+                ({ error } = await supabase.from('registrations').update({ registration_number: regNumber.trim(), student_name: studentName.trim() }).eq('id', editingRegistration.id));
+            } else {
+                ({ error } = await supabase.from('registrations').insert([{ registration_number: regNumber.trim(), student_name: studentName.trim() }]));
+            }
+            if (error) throw error;
             
-            setFormMessage({type: 'success', text: 'Voter added.'});
-            setVoterUsername('');
-            setVoterPassword('');
-            fetchVoters();
-            fetchDashboardStats();
+            setFormMessage({ type: 'success', text: `Registration ${editingRegistration ? 'updated' : 'added'} successfully.` });
+            setRegNumber('');
+            setStudentName('');
+            setEditingRegistration(null);
+            fetchRegistrations();
         } catch (error: any) {
-            setFormMessage({type: 'error', text: error.message});
+            if (error.code === '23505') {
+                setFormMessage({ type: 'error', text: 'This registration number already exists.' });
+            } else {
+                setFormMessage({ type: 'error', text: error.message });
+            }
         } finally {
             setLoading(false);
         }
     };
 
+    const handleEditRegistration = (reg: Registration) => {
+        setEditingRegistration(reg);
+        setRegNumber(reg.registration_number);
+        setStudentName(reg.student_name);
+        window.scrollTo(0, 0);
+    };
+    
+    const handleCancelEdit = () => {
+        setEditingRegistration(null);
+        setRegNumber('');
+        setStudentName('');
+        setFormMessage(null);
+    };
+
+    const handleDeleteRegistration = async (id: number) => {
+        if (window.confirm("Are you sure you want to delete this registration entry?")) {
+            const { error } = await supabase.from('registrations').delete().eq('id', id);
+            if (error) {
+                setFormMessage({ type: 'error', text: error.message });
+            } else {
+                setFormMessage({ type: 'success', text: 'Registration deleted.' });
+                fetchRegistrations();
+            }
+        }
+    };
+    
     const handleAddAdmin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newAdminUsername || !newAdminPassword) {
@@ -619,23 +655,11 @@ const AdminPortal: React.FC = () => {
 
                 return (
                     <Page title="Manage Voters">
-                       {!isRegistrationActive ? (
-                            <div className="max-w-md mx-auto mb-8 p-6 bg-yellow-50 rounded-lg border border-yellow-300 text-center">
-                                <i className="fas fa-exclamation-triangle text-yellow-500 text-2xl mb-2"></i>
-                                <h3 className="text-xl font-semibold mb-2 text-yellow-800">Registration Closed</h3>
-                                <p className="text-yellow-700">The deadline for adding new voters has passed on {registrationDeadline}.</p>
-                            </div>
-                        ) : (
-                           <form onSubmit={handleAddVoter} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
-                               <h3 className="text-xl font-semibold mb-4 text-center">Add Online Voter</h3>
-                               <div className="space-y-4">
-                                   <input type="text" placeholder="Voter Username" value={voterUsername} onChange={e => setVoterUsername(e.target.value)} className="w-full p-3 border rounded-lg" />
-                                   <input type="password" placeholder="Voter Password" value={voterPassword} onChange={e => setVoterPassword(e.target.value)} className="w-full p-3 border rounded-lg" />
-                                   <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Voter</button>
-                               </div>
-                               <FormMessage />
-                           </form>
-                        )}
+                       <div className="max-w-xl mx-auto mb-8 p-6 bg-blue-50 rounded-lg border border-blue-200 text-center">
+                            <i className="fas fa-info-circle text-blue-500 text-2xl mb-2"></i>
+                            <h3 className="text-xl font-semibold mb-2 text-blue-800">Voter Management</h3>
+                            <p className="text-blue-700">Students now register themselves by verifying their registration number. Add, edit, or remove eligible students in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-blue-800 hover:underline">Registrations</button> tab.</p>
+                       </div>
                        <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
                        
                        <div className="grid grid-cols-3 gap-4 mb-4 text-center p-4 bg-gray-50 rounded-lg border">
@@ -653,7 +677,6 @@ const AdminPortal: React.FC = () => {
                             </div>
                         </div>
 
-                       {/* --- Filtering and Sorting Controls --- */}
                        <div className="mb-4 p-4 bg-slate-50 rounded-lg border space-y-4">
                            <div className="relative">
                                <input
@@ -731,6 +754,44 @@ const AdminPortal: React.FC = () => {
                    </Page>
                 );
             }
+            case 'REGISTRATIONS': return (
+                <Page title="Manage Registration Numbers">
+                    <form onSubmit={handleAddOrUpdateRegistration} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
+                        <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
+                        <div className="space-y-4">
+                            <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
+                            <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                            <div className="flex gap-2">
+                                {editingRegistration && (
+                                    <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
+                                )}
+                                <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
+                                    {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
+                                </button>
+                            </div>
+                        </div>
+                        <FormMessage />
+                    </form>
+                    <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({registrations.length})</h3>
+                    <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2">
+                        {registrations.length === 0 ? <p className="text-center text-gray-500">No registration numbers added yet.</p> :
+                            registrations.map((reg, index) => (
+                                <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                    <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
+                                    <div className="flex-grow">
+                                        <p className="font-bold text-slate-800">{reg.student_name}</p>
+                                        <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
+                                        <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
+                                    </div>
+                                </div>
+                            ))
+                        }
+                    </div>
+                </Page>
+            );
             case 'ADMINS': return (
                  <Page title="Manage Admins">
                     <form onSubmit={handleAddAdmin} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
@@ -855,6 +916,7 @@ const AdminPortal: React.FC = () => {
                        <NavLink icon="fa-clock" label="DEADLINE" currentView={view} setView={setView} />
                        <NavLink icon="fa-users" label="CANDIDATES" currentView={view} setView={setView} />
                        <NavLink icon="fa-user-plus" label="VOTERS" currentView={view} setView={setView} />
+                       <NavLink icon="fa-id-card" label="REGISTRATIONS" currentView={view} setView={setView} />
                        <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} setView={setView} />
                        <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} setView={setView} />
                     </ul>
