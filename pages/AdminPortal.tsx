@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
 import type { Director, Candidate, Voter, Admin, Registration } from '../types';
@@ -23,6 +24,13 @@ const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<H
         </div>
     );
 };
+
+const Page: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
+    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-200">
+        <h2 className="text-3xl font-bold text-slate-800 mb-6 text-center">{title}</h2>
+        {children}
+    </div>
+);
 
 
 const AdminPortal: React.FC = () => {
@@ -63,7 +71,8 @@ const AdminPortal: React.FC = () => {
     const [regNumber, setRegNumber] = useState('');
     const [studentName, setStudentName] = useState('');
     const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
-    
+    const [registrationSearchTerm, setRegistrationSearchTerm] = useState('');
+
     // Voter management state
     const [voterSearchTerm, setVoterSearchTerm] = useState('');
     const [voterSortKey, setVoterSortKey] = useState<'username' | 'created_at' | 'has_voted' | 'voter_type'>('created_at');
@@ -537,20 +546,6 @@ const AdminPortal: React.FC = () => {
         return voterSortOrder === 'asc' ? comparison : -comparison;
     });
 
-    const FormMessage: React.FC = () => {
-        if (!formMessage) return null;
-        const baseClasses = 'p-3 rounded-lg text-center mt-4 text-sm';
-        const typeClasses = formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
-        return <div className={`${baseClasses} ${typeClasses}`}>{formMessage.text}</div>;
-    };
-
-    const Page: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
-        <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-200">
-            <h2 className="text-3xl font-bold text-slate-800 mb-6 text-center">{title}</h2>
-            {children}
-        </div>
-    );
-
     const renderView = () => {
         switch (view) {
             case 'DASHBOARD': return (
@@ -602,7 +597,7 @@ const AdminPortal: React.FC = () => {
                                <button onClick={handleSetDeadline} disabled={loading} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-300">Set Voting Deadline</button>
                            </div>
                         </div>
-                        <FormMessage />
+                        {formMessage && <div className={`p-3 rounded-lg text-center text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                         <div className="p-6 bg-red-50 rounded-lg border border-red-200">
                            <h3 className="text-xl font-semibold mb-2 text-center text-red-800">Danger Zone</h3>
                            <p className="text-center text-red-600 mb-4 max-w-md mx-auto">Resetting the election will delete all voters, candidates, votes, and deadlines. This action cannot be undone.</p>
@@ -621,7 +616,7 @@ const AdminPortal: React.FC = () => {
                             <input id="candidate-photo" type="file" accept="image/*" onChange={e => setCandidatePhoto(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                             <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Candidate</button>
                         </div>
-                        <FormMessage />
+                        {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     </form>
                     <h3 className="text-xl font-semibold mb-4 text-center">Candidates List</h3>
                     <div className="space-y-4 max-h-96 overflow-y-auto p-2">
@@ -754,44 +749,64 @@ const AdminPortal: React.FC = () => {
                    </Page>
                 );
             }
-            case 'REGISTRATIONS': return (
-                <Page title="Manage Registration Numbers">
-                    <form onSubmit={handleAddOrUpdateRegistration} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
-                        <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
-                        <div className="space-y-4">
-                            <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <div className="flex gap-2">
-                                {editingRegistration && (
-                                    <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
-                                )}
-                                <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
-                                    {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
-                                </button>
-                            </div>
-                        </div>
-                        <FormMessage />
-                    </form>
-                    <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({registrations.length})</h3>
-                    <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2">
-                        {registrations.length === 0 ? <p className="text-center text-gray-500">No registration numbers added yet.</p> :
-                            registrations.map((reg, index) => (
-                                <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
-                                    <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
-                                    <div className="flex-grow">
-                                        <p className="font-bold text-slate-800">{reg.student_name}</p>
-                                        <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
-                                    </div>
-                                    <div className="flex gap-3">
-                                        <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
-                                        <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
-                                    </div>
+            case 'REGISTRATIONS': {
+                const filteredRegistrations = registrations.filter(reg =>
+                    reg.student_name.toLowerCase().includes(registrationSearchTerm.toLowerCase()) ||
+                    reg.registration_number.toLowerCase().includes(registrationSearchTerm.toLowerCase())
+                );
+                return (
+                    <Page title="Manage Registration Numbers">
+                        <form onSubmit={handleAddOrUpdateRegistration} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
+                            <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
+                            <div className="space-y-4">
+                                <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                <div className="flex gap-2">
+                                    {editingRegistration && (
+                                        <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
+                                    )}
+                                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
+                                        {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
+                                    </button>
                                 </div>
-                            ))
-                        }
-                    </div>
-                </Page>
-            );
+                            </div>
+                            {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
+                        </form>
+                        <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({filteredRegistrations.length}/{registrations.length})</h3>
+                        <div className="max-w-xl mx-auto mb-4 relative">
+                           <input
+                               type="text"
+                               placeholder="Search by name or registration number..."
+                               value={registrationSearchTerm}
+                               onChange={e => setRegistrationSearchTerm(e.target.value)}
+                               className="w-full p-3 pl-10 border rounded-lg"
+                           />
+                           <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        </div>
+                        <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2">
+                            {registrations.length === 0 ? (
+                                <p className="text-center text-gray-500">No registration numbers added yet.</p>
+                            ) : filteredRegistrations.length === 0 ? (
+                                <p className="text-center text-gray-500">No registrations found matching your search.</p>
+                            ) : (
+                                filteredRegistrations.map((reg, index) => (
+                                    <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                        <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
+                                        <div className="flex-grow">
+                                            <p className="font-bold text-slate-800">{reg.student_name}</p>
+                                            <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
+                                            <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </Page>
+                );
+            }
             case 'ADMINS': return (
                  <Page title="Manage Admins">
                     <form onSubmit={handleAddAdmin} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
@@ -801,7 +816,7 @@ const AdminPortal: React.FC = () => {
                             <PasswordField id="new-admin-password" placeholder="New Admin Password" value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} />
                             <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Admin</button>
                         </div>
-                        <FormMessage />
+                        {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     </form>
                     <h3 className="text-xl font-semibold mb-4 text-center">Registered Admins</h3>
                     <div className="space-y-4 max-h-96 overflow-y-auto p-2">
