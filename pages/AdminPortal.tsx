@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../services/supabaseClient';
-import type { Director, Candidate, Voter, Admin } from '../types';
+import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { supabase } from '../services/supabaseClient'; // NOTE: This file is part of your existing project and is not provided.
+import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
-type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'ADMINS' | 'RESULTS';
+type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS';
 
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
     const [show, setShow] = useState(false);
     return (
-        <div className="relative max-w-md mx-auto">
+        <div className="relative">
             <input
                 id={id}
                 type={show ? "text" : "password"}
@@ -22,6 +23,144 @@ const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<H
             </button>
         </div>
     );
+};
+
+const Page: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
+    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-200">
+        <h2 className="text-3xl font-bold text-slate-800 mb-6 text-center">{title}</h2>
+        {children}
+    </div>
+);
+
+// --- CHART COMPONENTS ---
+
+interface TurnoutChartProps {
+  voted: number;
+  total: number;
+}
+const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
+  if (total === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No voters registered yet.</div>;
+  
+  const pending = total - voted;
+  const data = [
+    { name: 'Voted', value: voted },
+    { name: 'Pending', value: pending },
+  ];
+  const COLORS = ['#10B981', '#F59E0B']; // Emerald-500, Amber-500
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          innerRadius={70}
+          outerRadius={90}
+          fill="#8884d8"
+          paddingAngle={5}
+          dataKey="value"
+        >
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip formatter={(value: number) => `${value} voters`}/>
+        <Legend iconType="circle" />
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-2xl font-bold fill-gray-700">
+          {total > 0 ? `${((voted / total) * 100).toFixed(1)}%` : '0%'}
+        </text>
+        <text x="50%" y="50%" dy={20} textAnchor="middle" className="text-sm fill-gray-500">
+          Turnout
+        </text>
+      </PieChart>
+    </ResponsiveContainer>
+  );
+};
+
+interface VoterTypeChartProps {
+  voters: Voter[];
+}
+const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
+  if (voters.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No voter data available.</div>;
+
+  const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+  const onlineVotersCount = voters.length - physicalVotersCount;
+  
+  const data = [
+      { name: 'Online', value: onlineVotersCount },
+      { name: 'Physical', value: physicalVotersCount },
+  ];
+  const COLORS = ['#3B82F6', '#8B5CF6']; // Blue-500, Violet-500
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          outerRadius={90}
+          fill="#8884d8"
+          dataKey="value"
+          labelLine={false}
+          // Fix: Explicitly type the props for the recharts Pie label to prevent type errors during arithmetic operations.
+          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx: number, cy: number, midAngle: number, innerRadius: number, outerRadius: number, percent: number }) => {
+            if(percent === 0) return null;
+            const RADIAN = Math.PI / 180;
+            const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+            const x = cx + radius * Math.cos(-midAngle * RADIAN);
+            const y = cy + radius * Math.sin(-midAngle * RADIAN);
+            return (
+              <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="font-semibold">
+                {`${(percent * 100).toFixed(0)}%`}
+              </text>
+            );
+          }}
+        >
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip formatter={(value: number) => `${value} voters`}/>
+        <Legend iconType="circle" />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+};
+
+interface CandidatesChartProps {
+  candidates: Candidate[];
+}
+const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates }) => {
+  if (candidates.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No candidates added yet.</div>;
+  
+  const positionCounts = candidates.reduce((acc, candidate) => {
+    const pos = candidate.position || "Unspecified";
+    acc[pos] = (acc[pos] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const data = Object.keys(positionCounts).map(position => ({
+    name: position,
+    Candidates: positionCounts[position],
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart
+        data={data}
+        margin={{ top: 5, right: 20, left: -10, bottom: 5 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="name" />
+        <YAxis allowDecimals={false} />
+        <Tooltip cursor={{fill: 'rgba(241, 245, 249, 0.5)'}} />
+        <Legend iconType="circle" />
+        <Bar dataKey="Candidates" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
 };
 
 
@@ -39,10 +178,15 @@ const AdminPortal: React.FC = () => {
     // Data State
     const [dashboardStats, setDashboardStats] = useState({ candidates: 0, voters: 0, votes: 0 });
     const [deadline, setDeadline] = useState('');
+    const [deadlineRaw, setDeadlineRaw] = useState('');
+    const [registrationDeadline, setRegistrationDeadline] = useState('');
+    const [registrationDeadlineRaw, setRegistrationDeadlineRaw] = useState('');
     const [timeRemaining, setTimeRemaining] = useState('');
     const [electionStatus, setElectionStatus] = useState<'Preparing' | 'Active' | 'Ended'>('Preparing');
+    const [isRegistrationActive, setIsRegistrationActive] = useState(true);
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const [voters, setVoters] = useState<Voter[]>([]);
+    const [registrations, setRegistrations] = useState<Registration[]>([]);
     const [admins, setAdmins] = useState<Admin[]>([]);
     const [results, setResults] = useState<any[]>([]);
     
@@ -50,13 +194,16 @@ const AdminPortal: React.FC = () => {
     const [candidateName, setCandidateName] = useState('');
     const [candidatePosition, setCandidatePosition] = useState('');
     const [candidatePhoto, setCandidatePhoto] = useState<File | null>(null);
-    const [voterUsername, setVoterUsername] = useState('');
-    const [voterPassword, setVoterPassword] = useState('');
     const [newAdminUsername, setNewAdminUsername] = useState('');
     const [newAdminPassword, setNewAdminPassword] = useState('');
     const [deadlineInput, setDeadlineInput] = useState('');
+    const [registrationDeadlineInput, setRegistrationDeadlineInput] = useState('');
     const [formMessage, setFormMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
-    
+    const [regNumber, setRegNumber] = useState('');
+    const [studentName, setStudentName] = useState('');
+    const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
+    const [registrationSearchTerm, setRegistrationSearchTerm] = useState('');
+
     // Voter management state
     const [voterSearchTerm, setVoterSearchTerm] = useState('');
     const [voterSortKey, setVoterSortKey] = useState<'username' | 'created_at' | 'has_voted' | 'voter_type'>('created_at');
@@ -90,20 +237,35 @@ const AdminPortal: React.FC = () => {
     const fetchDashboardStats = useCallback(async () => {
         const { count: candidatesCount } = await supabase.from('candidates').select('*', { count: 'exact', head: true });
         const { count: votersCount } = await supabase.from('voters').select('*', { count: 'exact', head: true });
-        const { count: onlineVotesCount } = await supabase.from('votes').select('*', { count: 'exact', head: true });
-        const { count: physicalVotesCount } = await supabase.from('physical_votes').select('*', { count: 'exact', head: true });
-        setDashboardStats({ candidates: candidatesCount || 0, voters: votersCount || 0, votes: (onlineVotesCount || 0) + (physicalVotesCount || 0) });
+        const { count: votesCastCount } = await supabase.from('voters').select('*', { count: 'exact', head: true }).eq('has_voted', true);
+        setDashboardStats({ candidates: candidatesCount || 0, voters: votersCount || 0, votes: votesCastCount || 0 });
     }, []);
 
     const fetchDeadline = useCallback(async () => {
         const { data } = await supabase.from('settings').select('value').eq('key', 'voting_deadline').single();
-        if (data) {
+        if (data && data.value) {
             const deadlineDate = new Date(data.value);
             setDeadline(deadlineDate.toLocaleString());
+            setDeadlineRaw(data.value);
             setDeadlineInput(data.value.substring(0, 16));
         } else {
             setDeadline('Not set');
+            setDeadlineRaw('');
             setDeadlineInput('');
+        }
+    }, []);
+
+    const fetchRegistrationDeadline = useCallback(async () => {
+        const { data } = await supabase.from('settings').select('value').eq('key', 'registration_deadline').single();
+        if (data && data.value) {
+            const deadlineDate = new Date(data.value);
+            setRegistrationDeadline(deadlineDate.toLocaleString());
+            setRegistrationDeadlineRaw(data.value);
+            setRegistrationDeadlineInput(data.value.substring(0, 16));
+        } else {
+            setRegistrationDeadline('Not set');
+            setRegistrationDeadlineRaw('');
+            setRegistrationDeadlineInput('');
         }
     }, []);
     
@@ -117,6 +279,11 @@ const AdminPortal: React.FC = () => {
         setVoters(data || []);
     }, []);
 
+    const fetchRegistrations = useCallback(async () => {
+        const { data } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
+        setRegistrations(data || []);
+    }, []);
+
     const fetchAdmins = useCallback(async () => {
         const { data } = await supabase.from('directors').select('*').order('created_at');
         setAdmins(data || []);
@@ -126,14 +293,12 @@ const AdminPortal: React.FC = () => {
         const { data: candidatesData } = await supabase.from('candidates').select('*');
         if (!candidatesData) return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
 
-        // FIX: Explicitly type Maps to prevent errors from 'unknown' types from Supabase.
         const candidateIdMap = new Map<string, string>(candidatesData.map(c => [`${c.position}_${c.name}`, c.id]));
         const voteCounts = new Map<string, number>(candidatesData.map(c => [c.id, 0]));
 
         const { data: onlineVotes } = await supabase.from('votes').select('candidate_id');
         onlineVotes?.forEach(vote => {
             if (vote.candidate_id) {
-                // FIX: Cast candidate_id to string to use as a map key.
                 const candidateId = vote.candidate_id as string;
                 voteCounts.set(candidateId, (voteCounts.get(candidateId) || 0) + 1);
             }
@@ -143,7 +308,6 @@ const AdminPortal: React.FC = () => {
         physicalVotes?.forEach(pVote => {
             if (pVote.votes) {
                 try {
-                    // FIX: Type voteData as 'any' to allow dynamic property access, preventing errors with 'unknown' type.
                     const voteData: any = (typeof pVote.votes === 'string') ? JSON.parse(pVote.votes) : pVote.votes;
                     for (const position in voteData) {
                         const candidateName = voteData[position];
@@ -157,7 +321,6 @@ const AdminPortal: React.FC = () => {
             }
         });
 
-        // FIX: With voteCounts correctly typed, this reduce operation is now type-safe.
         const totalVotes = Array.from(voteCounts.values()).reduce((sum, count) => sum + count, 0);
         return { candidates: candidatesData, voteCounts, totalVotes };
     }, []);
@@ -170,7 +333,6 @@ const AdminPortal: React.FC = () => {
             return;
         }
 
-        // FIX: Cast candidates to Candidate[] to ensure type safety for subsequent operations.
         const typedCandidates = candidates as Candidate[];
         const positions = [...new Set(typedCandidates.map(c => c.position))];
         const formattedResults = positions.map(position => {
@@ -194,23 +356,24 @@ const AdminPortal: React.FC = () => {
 
 
     const loadAllData = useCallback(async () => {
-        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchCandidates(), fetchVoters(), fetchAdmins(), fetchResults()]);
-    }, [fetchDashboardStats, fetchDeadline, fetchCandidates, fetchVoters, fetchAdmins, fetchResults]);
+        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults()]);
+    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults]);
 
     useEffect(() => {
         if (currentUser) {
             loadAllData();
         }
-    }, [currentUser, loadAllData]);
+         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser]);
 
     useEffect(() => {
         const calculateTimeRemaining = () => {
-            if (!deadline || deadline === 'Not set') {
+            if (!deadlineRaw) {
                 setElectionStatus('Preparing');
                 setTimeRemaining('--');
                 return;
             }
-            const deadlineDate = new Date(deadline);
+            const deadlineDate = new Date(deadlineRaw);
             const now = new Date();
             const diff = deadlineDate.getTime() - now.getTime();
 
@@ -235,8 +398,17 @@ const AdminPortal: React.FC = () => {
         calculateTimeRemaining();
         const interval = setInterval(calculateTimeRemaining, 60000);
         return () => clearInterval(interval);
-    }, [deadline]);
+    }, [deadlineRaw]);
 
+    useEffect(() => {
+        if (!registrationDeadlineRaw) {
+            setIsRegistrationActive(true); // Default to open if not set for admin flexibility
+            return;
+        }
+        const deadlineDate = new Date(registrationDeadlineRaw);
+        const now = new Date();
+        setIsRegistrationActive(deadlineDate.getTime() > now.getTime());
+    }, [registrationDeadlineRaw]);
     
     // --- ACTIONS ---
 
@@ -246,8 +418,23 @@ const AdminPortal: React.FC = () => {
         try {
             if(!deadlineInput) throw new Error("Please select a valid date and time.");
             await supabase.from('settings').upsert({ key: 'voting_deadline', value: deadlineInput });
-            setFormMessage({type: 'success', text: 'Deadline updated successfully.'});
+            setFormMessage({type: 'success', text: 'Voting deadline updated successfully.'});
             fetchDeadline();
+        } catch (error: any) {
+            setFormMessage({type: 'error', text: error.message});
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const handleSetRegistrationDeadline = async () => {
+        setLoading(true);
+        setFormMessage(null);
+        try {
+            if(!registrationDeadlineInput) throw new Error("Please select a valid date and time.");
+            await supabase.from('settings').upsert({ key: 'registration_deadline', value: registrationDeadlineInput });
+            setFormMessage({type: 'success', text: 'Registration deadline updated successfully.'});
+            fetchRegistrationDeadline();
         } catch (error: any) {
             setFormMessage({type: 'error', text: error.message});
         } finally {
@@ -263,7 +450,9 @@ const AdminPortal: React.FC = () => {
                 await supabase.from('physical_votes').delete().neq('id', 0);
                 await supabase.from('candidates').delete().neq('id', 0);
                 await supabase.from('voters').delete().neq('id', 0);
+                await supabase.from('registrations').delete().neq('id', 0);
                 await supabase.from('settings').delete().eq('key', 'voting_deadline');
+                await supabase.from('settings').delete().eq('key', 'registration_deadline');
                 alert('Election data has been reset.');
                 loadAllData();
             } catch (error: any) {
@@ -330,34 +519,66 @@ const AdminPortal: React.FC = () => {
             }
         }
     };
-    
-    const handleAddVoter = async (e: React.FormEvent) => {
+
+    const handleAddOrUpdateRegistration = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!voterUsername || !voterPassword) {
-            setFormMessage({type: 'error', text: 'Username and password are required.'});
+        if (!regNumber || !studentName) {
+            setFormMessage({ type: 'error', text: 'Registration number and student name are required.' });
             return;
         }
         setLoading(true);
         setFormMessage(null);
         try {
-            const { data: existing } = await supabase.from('voters').select('id').eq('username', voterUsername).maybeSingle();
-            if(existing) throw new Error('Username already exists.');
-
-            const { error } = await supabase.from('voters').insert([{ username: voterUsername, password: voterPassword, has_voted: false }]);
-            if(error) throw error;
+            let error;
+            if (editingRegistration) {
+                ({ error } = await supabase.from('registrations').update({ registration_number: regNumber.trim(), student_name: studentName.trim() }).eq('id', editingRegistration.id));
+            } else {
+                ({ error } = await supabase.from('registrations').insert([{ registration_number: regNumber.trim(), student_name: studentName.trim() }]));
+            }
+            if (error) throw error;
             
-            setFormMessage({type: 'success', text: 'Voter added.'});
-            setVoterUsername('');
-            setVoterPassword('');
-            fetchVoters();
-            fetchDashboardStats();
+            setFormMessage({ type: 'success', text: `Registration ${editingRegistration ? 'updated' : 'added'} successfully.` });
+            setRegNumber('');
+            setStudentName('');
+            setEditingRegistration(null);
+            fetchRegistrations();
         } catch (error: any) {
-            setFormMessage({type: 'error', text: error.message});
+            if (error.code === '23505') {
+                setFormMessage({ type: 'error', text: 'This registration number already exists.' });
+            } else {
+                setFormMessage({ type: 'error', text: error.message });
+            }
         } finally {
             setLoading(false);
         }
     };
 
+    const handleEditRegistration = (reg: Registration) => {
+        setEditingRegistration(reg);
+        setRegNumber(reg.registration_number);
+        setStudentName(reg.student_name);
+        window.scrollTo(0, 0);
+    };
+    
+    const handleCancelEdit = () => {
+        setEditingRegistration(null);
+        setRegNumber('');
+        setStudentName('');
+        setFormMessage(null);
+    };
+
+    const handleDeleteRegistration = async (id: number) => {
+        if (window.confirm("Are you sure you want to delete this registration entry?")) {
+            const { error } = await supabase.from('registrations').delete().eq('id', id);
+            if (error) {
+                setFormMessage({ type: 'error', text: error.message });
+            } else {
+                setFormMessage({ type: 'success', text: 'Registration deleted.' });
+                fetchRegistrations();
+            }
+        }
+    };
+    
     const handleAddAdmin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newAdminUsername || !newAdminPassword) {
@@ -391,7 +612,6 @@ const AdminPortal: React.FC = () => {
                 const { candidates, voteCounts } = await getFinalVoteCounts();
                 if (candidates.length === 0) throw new Error("No candidates to post results for.");
 
-                // FIX: Cast candidates to Candidate[] to avoid indexing with an 'unknown' type.
                 const typedCandidates = candidates as Candidate[];
                 const positions = [...new Set(typedCandidates.map(c => c.position))];
                 const finalResults: { [key: string]: any[] } = {};
@@ -419,10 +639,8 @@ const AdminPortal: React.FC = () => {
     };
 
     // --- RENDER LOGIC ---
-
     const filteredAndSortedVoters = voters
     .filter(voter => {
-        // Type filter
         if (voterTypeFilter === 'all') return true;
         const isPhysical = /[0-9]/.test(voter.username);
         if (voterTypeFilter === 'physical') return isPhysical;
@@ -430,13 +648,11 @@ const AdminPortal: React.FC = () => {
         return true;
     })
     .filter(voter => {
-        // Status filter
         if (voterStatusFilter === 'voted') return voter.has_voted;
         if (voterStatusFilter === 'pending') return !voter.has_voted;
         return true;
     })
     .filter(voter => 
-        // Search term filter
         voter.username.toLowerCase().includes(voterSearchTerm.toLowerCase()) ||
         (voter.full_name && voter.full_name.toLowerCase().includes(voterSearchTerm.toLowerCase())) ||
         (voter.registration_number && voter.registration_number.toLowerCase().includes(voterSearchTerm.toLowerCase()))
@@ -462,29 +678,19 @@ const AdminPortal: React.FC = () => {
         return voterSortOrder === 'asc' ? comparison : -comparison;
     });
 
-    const FormMessage: React.FC = () => {
-        if (!formMessage) return null;
-        const baseClasses = 'p-3 rounded-lg text-center mt-4';
-        const typeClasses = formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
-        return <div className={`${baseClasses} ${typeClasses}`}>{formMessage.text}</div>;
-    };
-
-    const Page: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
-        <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg border border-gray-200">
-            <h2 className="text-3xl font-bold text-slate-800 mb-6 text-center">{title}</h2>
-            {children}
-        </div>
-    );
-
     const renderView = () => {
         switch (view) {
             case 'DASHBOARD': return (
                 <Page title="Election Dashboard">
-                    <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-6 rounded-xl mb-8 border-2 border-blue-500">
+                    <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-6 rounded-xl mb-8 border-2 border-slate-200">
                         <h3 className="text-xl font-semibold text-slate-700 mb-4 flex items-center gap-3"><i className="fas fa-info-circle text-blue-500"></i>Election Status</h3>
-                        <p><strong>Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm ${electionStatus === 'Active' ? 'bg-green-100 text-green-700' : electionStatus === 'Ended' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{electionStatus}</span></p>
-                        <p><strong>Deadline:</strong> {deadline}</p>
-                        <p><strong>Time Remaining:</strong> {timeRemaining}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                          <p><strong>Voting Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm ${electionStatus === 'Active' ? 'bg-green-100 text-green-700' : electionStatus === 'Ended' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{electionStatus}</span></p>
+                          <p><strong>Registration Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm ${isRegistrationActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isRegistrationActive ? 'Open' : 'Closed'}</span></p>
+                          <p><strong>Voting Deadline:</strong> {deadline}</p>
+                          <p><strong>Registration Deadline:</strong> {registrationDeadline}</p>
+                          <p><strong>Time Remaining:</strong> {timeRemaining}</p>
+                        </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white p-6 rounded-xl shadow-lg text-center">
@@ -494,20 +700,57 @@ const AdminPortal: React.FC = () => {
                             <i className="fas fa-user-check text-4xl mb-2"></i><h4 className="font-bold text-lg">Registered Voters</h4><p className="text-4xl font-bold">{dashboardStats.voters}</p>
                         </div>
                         <div className="bg-gradient-to-br from-cyan-400 to-sky-500 text-white p-6 rounded-xl shadow-lg text-center">
-                            <i className="fas fa-vote-yea text-4xl mb-2"></i><h4 className="font-bold text-lg">Votes Cast</h4><p className="text-4xl font-bold">{dashboardStats.votes}</p>
+                            <i className="fas fa-vote-yea text-4xl mb-2"></i><h4 className="font-bold text-lg">Votes Cast</h4>
+                            <p className="text-4xl font-bold">{dashboardStats.votes}</p>
+                            {dashboardStats.voters > 0 && (
+                                <p className="text-sm opacity-80 mt-1">
+                                    ({((dashboardStats.votes / dashboardStats.voters) * 100).toFixed(1)}% turnout)
+                                </p>
+                            )}
                         </div>
                     </div>
+
+                    <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                            <h3 className="text-xl font-semibold text-slate-800 mb-4 text-center">Voter Turnout</h3>
+                            <VoterTurnoutChart voted={dashboardStats.votes} total={dashboardStats.voters} />
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                            <h3 className="text-xl font-semibold text-slate-800 mb-4 text-center">Voter Types</h3>
+                            <VoterTypeChart voters={voters} />
+                        </div>
+                    </div>
+                    <div className="mt-6 bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                        <h3 className="text-xl font-semibold text-slate-800 mb-4 text-center">Candidates per Position</h3>
+                        <CandidatesPerPositionChart candidates={candidates} />
+                    </div>
+
                     <button onClick={loadAllData} className="mt-8 w-full max-w-sm mx-auto flex justify-center items-center gap-2 bg-slate-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-800 transition-colors"><i className="fas fa-sync-alt"></i>Refresh Dashboard</button>
                 </Page>
             );
             case 'DEADLINE': return (
-                <Page title="Set Voting Deadline">
-                     <div className="max-w-md mx-auto text-center">
-                        <input type="datetime-local" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
-                        <button onClick={handleSetDeadline} disabled={loading} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-300">Set Deadline</button>
-                        <FormMessage />
-                        <hr className="my-8"/>
-                        <button onClick={handleResetElections} disabled={loading} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-300">Reset Elections</button>
+                <Page title="Manage Deadlines">
+                     <div className="space-y-10">
+                        <div className="p-6 bg-gray-50 rounded-lg border">
+                           <h3 className="text-xl font-semibold mb-4 text-center">Set Voter Registration Deadline</h3>
+                           <div className="max-w-md mx-auto text-center">
+                               <input type="datetime-local" value={registrationDeadlineInput} onChange={e => setRegistrationDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                               <button onClick={handleSetRegistrationDeadline} disabled={loading} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-300">Set Registration Deadline</button>
+                           </div>
+                        </div>
+                        <div className="p-6 bg-gray-50 rounded-lg border">
+                           <h3 className="text-xl font-semibold mb-4 text-center">Set Voting Deadline</h3>
+                           <div className="max-w-md mx-auto text-center">
+                               <input type="datetime-local" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+                               <button onClick={handleSetDeadline} disabled={loading} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-300">Set Voting Deadline</button>
+                           </div>
+                        </div>
+                        {formMessage && <div className={`p-3 rounded-lg text-center text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
+                        <div className="p-6 bg-red-50 rounded-lg border border-red-200">
+                           <h3 className="text-xl font-semibold mb-2 text-center text-red-800">Danger Zone</h3>
+                           <p className="text-center text-red-600 mb-4 max-w-md mx-auto">Resetting the election will delete all voters, candidates, votes, and deadlines. This action cannot be undone.</p>
+                           <button onClick={handleResetElections} disabled={loading} className="w-full max-w-md mx-auto bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-300">Reset Elections</button>
+                        </div>
                      </div>
                 </Page>
             );
@@ -521,7 +764,7 @@ const AdminPortal: React.FC = () => {
                             <input id="candidate-photo" type="file" accept="image/*" onChange={e => setCandidatePhoto(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                             <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Candidate</button>
                         </div>
-                        <FormMessage />
+                        {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     </form>
                     <h3 className="text-xl font-semibold mb-4 text-center">Candidates List</h3>
                     <div className="space-y-4 max-h-96 overflow-y-auto p-2">
@@ -555,15 +798,11 @@ const AdminPortal: React.FC = () => {
 
                 return (
                     <Page title="Manage Voters">
-                       <form onSubmit={handleAddVoter} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
-                           <h3 className="text-xl font-semibold mb-4 text-center">Add Online Voter</h3>
-                           <div className="space-y-4">
-                               <input type="text" placeholder="Voter Username" value={voterUsername} onChange={e => setVoterUsername(e.target.value)} className="w-full p-3 border rounded-lg" />
-                               <input type="password" placeholder="Voter Password" value={voterPassword} onChange={e => setVoterPassword(e.target.value)} className="w-full p-3 border rounded-lg" />
-                               <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Voter</button>
-                           </div>
-                           <FormMessage />
-                       </form>
+                       <div className="max-w-xl mx-auto mb-8 p-6 bg-blue-50 rounded-lg border border-blue-200 text-center">
+                            <i className="fas fa-info-circle text-blue-500 text-2xl mb-2"></i>
+                            <h3 className="text-xl font-semibold mb-2 text-blue-800">Voter Management</h3>
+                            <p className="text-blue-700">Students now register themselves by verifying their registration number. Add, edit, or remove eligible students in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-blue-800 hover:underline">Registrations</button> tab.</p>
+                       </div>
                        <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
                        
                        <div className="grid grid-cols-3 gap-4 mb-4 text-center p-4 bg-gray-50 rounded-lg border">
@@ -581,7 +820,6 @@ const AdminPortal: React.FC = () => {
                             </div>
                         </div>
 
-                       {/* --- Filtering and Sorting Controls --- */}
                        <div className="mb-4 p-4 bg-slate-50 rounded-lg border space-y-4">
                            <div className="relative">
                                <input
@@ -628,7 +866,7 @@ const AdminPortal: React.FC = () => {
     
                        <div className="space-y-4 max-h-96 overflow-y-auto p-2">
                             {filteredAndSortedVoters.length === 0 ? <p className="text-center text-gray-500">No voters match your criteria.</p> :
-                               filteredAndSortedVoters.map((v: any) => {
+                               filteredAndSortedVoters.map((v: Voter) => {
                                     const isPhysical = /[0-9]/.test(v.username);
                                     const voterTypeLabel = isPhysical ? 'Physical' : 'Online';
                                     const labelColorClasses = isPhysical ? 'text-purple-800 bg-purple-100' : 'text-blue-800 bg-blue-100';
@@ -659,6 +897,64 @@ const AdminPortal: React.FC = () => {
                    </Page>
                 );
             }
+            case 'REGISTRATIONS': {
+                const filteredRegistrations = registrations.filter(reg =>
+                    reg.student_name.toLowerCase().includes(registrationSearchTerm.toLowerCase()) ||
+                    reg.registration_number.toLowerCase().includes(registrationSearchTerm.toLowerCase())
+                );
+                return (
+                    <Page title="Manage Registration Numbers">
+                        <form onSubmit={handleAddOrUpdateRegistration} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
+                            <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
+                            <div className="space-y-4">
+                                <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                <div className="flex gap-2">
+                                    {editingRegistration && (
+                                        <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
+                                    )}
+                                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
+                                        {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
+                                    </button>
+                                </div>
+                            </div>
+                            {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
+                        </form>
+                        <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({filteredRegistrations.length}/{registrations.length})</h3>
+                        <div className="max-w-xl mx-auto mb-4 relative">
+                           <input
+                               type="text"
+                               placeholder="Search by name or registration number..."
+                               value={registrationSearchTerm}
+                               onChange={e => setRegistrationSearchTerm(e.target.value)}
+                               className="w-full p-3 pl-10 border rounded-lg"
+                           />
+                           <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        </div>
+                        <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2">
+                            {registrations.length === 0 ? (
+                                <p className="text-center text-gray-500">No registration numbers added yet.</p>
+                            ) : filteredRegistrations.length === 0 ? (
+                                <p className="text-center text-gray-500">No registrations found matching your search.</p>
+                            ) : (
+                                filteredRegistrations.map((reg, index) => (
+                                    <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                        <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
+                                        <div className="flex-grow">
+                                            <p className="font-bold text-slate-800">{reg.student_name}</p>
+                                            <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
+                                            <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </Page>
+                );
+            }
             case 'ADMINS': return (
                  <Page title="Manage Admins">
                     <form onSubmit={handleAddAdmin} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
@@ -668,7 +964,7 @@ const AdminPortal: React.FC = () => {
                             <PasswordField id="new-admin-password" placeholder="New Admin Password" value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} />
                             <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Admin</button>
                         </div>
-                        <FormMessage />
+                        {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     </form>
                     <h3 className="text-xl font-semibold mb-4 text-center">Registered Admins</h3>
                     <div className="space-y-4 max-h-96 overflow-y-auto p-2">
@@ -783,6 +1079,7 @@ const AdminPortal: React.FC = () => {
                        <NavLink icon="fa-clock" label="DEADLINE" currentView={view} setView={setView} />
                        <NavLink icon="fa-users" label="CANDIDATES" currentView={view} setView={setView} />
                        <NavLink icon="fa-user-plus" label="VOTERS" currentView={view} setView={setView} />
+                       <NavLink icon="fa-id-card" label="REGISTRATIONS" currentView={view} setView={setView} />
                        <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} setView={setView} />
                        <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} setView={setView} />
                     </ul>

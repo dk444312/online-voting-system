@@ -1,4 +1,3 @@
-
 export interface Director {
   id: string;
   username: string;
