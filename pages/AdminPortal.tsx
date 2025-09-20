@@ -1,6 +1,6 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { supabase } from '../services/supabaseClient'; // NOTE: This file is part of your existing project and is not provided.
 import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
 type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS';
@@ -31,6 +31,137 @@ const Page: React.FC<{title: string; children: React.ReactNode}> = ({title, chil
         {children}
     </div>
 );
+
+// --- CHART COMPONENTS ---
+
+interface TurnoutChartProps {
+  voted: number;
+  total: number;
+}
+const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
+  if (total === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No voters registered yet.</div>;
+  
+  const pending = total - voted;
+  const data = [
+    { name: 'Voted', value: voted },
+    { name: 'Pending', value: pending },
+  ];
+  const COLORS = ['#10B981', '#F59E0B']; // Emerald-500, Amber-500
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          innerRadius={70}
+          outerRadius={90}
+          fill="#8884d8"
+          paddingAngle={5}
+          dataKey="value"
+        >
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip formatter={(value: number) => `${value} voters`}/>
+        <Legend iconType="circle" />
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-2xl font-bold fill-gray-700">
+          {total > 0 ? `${((voted / total) * 100).toFixed(1)}%` : '0%'}
+        </text>
+        <text x="50%" y="50%" dy={20} textAnchor="middle" className="text-sm fill-gray-500">
+          Turnout
+        </text>
+      </PieChart>
+    </ResponsiveContainer>
+  );
+};
+
+interface VoterTypeChartProps {
+  voters: Voter[];
+}
+const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
+  if (voters.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No voter data available.</div>;
+
+  const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+  const onlineVotersCount = voters.length - physicalVotersCount;
+  
+  const data = [
+      { name: 'Online', value: onlineVotersCount },
+      { name: 'Physical', value: physicalVotersCount },
+  ];
+  const COLORS = ['#3B82F6', '#8B5CF6']; // Blue-500, Violet-500
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          outerRadius={90}
+          fill="#8884d8"
+          dataKey="value"
+          labelLine={false}
+          // Fix: Explicitly type the props for the recharts Pie label to prevent type errors during arithmetic operations.
+          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx: number, cy: number, midAngle: number, innerRadius: number, outerRadius: number, percent: number }) => {
+            if(percent === 0) return null;
+            const RADIAN = Math.PI / 180;
+            const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+            const x = cx + radius * Math.cos(-midAngle * RADIAN);
+            const y = cy + radius * Math.sin(-midAngle * RADIAN);
+            return (
+              <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="font-semibold">
+                {`${(percent * 100).toFixed(0)}%`}
+              </text>
+            );
+          }}
+        >
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip formatter={(value: number) => `${value} voters`}/>
+        <Legend iconType="circle" />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+};
+
+interface CandidatesChartProps {
+  candidates: Candidate[];
+}
+const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates }) => {
+  if (candidates.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No candidates added yet.</div>;
+  
+  const positionCounts = candidates.reduce((acc, candidate) => {
+    const pos = candidate.position || "Unspecified";
+    acc[pos] = (acc[pos] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const data = Object.keys(positionCounts).map(position => ({
+    name: position,
+    Candidates: positionCounts[position],
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart
+        data={data}
+        margin={{ top: 5, right: 20, left: -10, bottom: 5 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="name" />
+        <YAxis allowDecimals={false} />
+        <Tooltip cursor={{fill: 'rgba(241, 245, 249, 0.5)'}} />
+        <Legend iconType="circle" />
+        <Bar dataKey="Candidates" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+};
 
 
 const AdminPortal: React.FC = () => {
@@ -232,7 +363,8 @@ const AdminPortal: React.FC = () => {
         if (currentUser) {
             loadAllData();
         }
-    }, [currentUser, loadAllData]);
+         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser]);
 
     useEffect(() => {
         const calculateTimeRemaining = () => {
@@ -577,6 +709,22 @@ const AdminPortal: React.FC = () => {
                             )}
                         </div>
                     </div>
+
+                    <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                            <h3 className="text-xl font-semibold text-slate-800 mb-4 text-center">Voter Turnout</h3>
+                            <VoterTurnoutChart voted={dashboardStats.votes} total={dashboardStats.voters} />
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                            <h3 className="text-xl font-semibold text-slate-800 mb-4 text-center">Voter Types</h3>
+                            <VoterTypeChart voters={voters} />
+                        </div>
+                    </div>
+                    <div className="mt-6 bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                        <h3 className="text-xl font-semibold text-slate-800 mb-4 text-center">Candidates per Position</h3>
+                        <CandidatesPerPositionChart candidates={candidates} />
+                    </div>
+
                     <button onClick={loadAllData} className="mt-8 w-full max-w-sm mx-auto flex justify-center items-center gap-2 bg-slate-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-800 transition-colors"><i className="fas fa-sync-alt"></i>Refresh Dashboard</button>
                 </Page>
             );
