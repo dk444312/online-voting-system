@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { supabase } from '../services/supabaseClient'; // NOTE: This file is part of your existing project and is not provided.
@@ -104,9 +106,10 @@ const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
           fill="#8884d8"
           dataKey="value"
           labelLine={false}
-          // Fix: Explicitly type the props for the recharts Pie label to prevent type errors during arithmetic operations.
-          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx: number, cy: number, midAngle: number, innerRadius: number, outerRadius: number, percent: number }) => {
-            if(percent === 0) return null;
+          // Fix: The explicit type on the label prop callback was causing a TypeScript error.
+          // Removing it allows TypeScript to correctly infer the types. A check for null/undefined percent is added.
+          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+            if (percent == null || percent === 0) return null;
             const RADIAN = Math.PI / 180;
             const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
             const x = cx + radius * Math.cos(-midAngle * RADIAN);
@@ -203,6 +206,8 @@ const AdminPortal: React.FC = () => {
     const [studentName, setStudentName] = useState('');
     const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
     const [registrationSearchTerm, setRegistrationSearchTerm] = useState('');
+    const [bulkRegData, setBulkRegData] = useState('');
+
 
     // Voter management state
     const [voterSearchTerm, setVoterSearchTerm] = useState('');
@@ -579,6 +584,47 @@ const AdminPortal: React.FC = () => {
         }
     };
     
+    const handleBulkAddRegistrations = async () => {
+        if (!bulkRegData.trim()) {
+            setFormMessage({ type: 'error', text: 'Bulk data field is empty.' });
+            return;
+        }
+        setLoading(true);
+        setFormMessage(null);
+        try {
+            const lines = bulkRegData.trim().split(/\r?\n/);
+            const newRegistrations = lines.map(line => {
+                const parts = line.split(',');
+                if (parts.length < 2) return null;
+                const registration_number = parts[0].trim();
+                const student_name = parts.slice(1).join(',').trim();
+                if (!registration_number || !student_name) return null;
+                return { registration_number, student_name };
+            }).filter((item): item is { registration_number: string; student_name: string; } => item !== null);
+
+            if (newRegistrations.length === 0) {
+                throw new Error("No valid data found. Ensure format is: REGISTRATION_NUMBER,STUDENT_NAME");
+            }
+
+            const { error } = await supabase.from('registrations').insert(newRegistrations);
+
+            if (error) {
+                if (error.code === '23505' || error.message.includes('duplicate key')) {
+                    throw new Error('Bulk import failed. One or more registration numbers already exist in the provided list or in the database. Please remove duplicates and try again.');
+                }
+                throw error;
+            }
+
+            setFormMessage({ type: 'success', text: `${newRegistrations.length} registrations added successfully.` });
+            setBulkRegData('');
+            fetchRegistrations();
+        } catch (error: any) {
+            setFormMessage({ type: 'error', text: `Error: ${error.message}` });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleAddAdmin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newAdminUsername || !newAdminPassword) {
@@ -904,53 +950,84 @@ const AdminPortal: React.FC = () => {
                 );
                 return (
                     <Page title="Manage Registration Numbers">
-                        <form onSubmit={handleAddOrUpdateRegistration} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
-                            <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
-                            <div className="space-y-4">
-                                <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
-                                <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
-                                <div className="flex gap-2">
-                                    {editingRegistration && (
-                                        <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
-                                    )}
-                                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
-                                        {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
+                        <div className="max-w-xl mx-auto space-y-8">
+                             <form onSubmit={handleAddOrUpdateRegistration} className="p-6 bg-gray-50 rounded-lg border">
+                                <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
+                                <div className="space-y-4">
+                                    <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                    <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                    <div className="flex gap-2">
+                                        {editingRegistration && (
+                                            <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
+                                        )}
+                                        <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
+                                            {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            <div className="p-6 bg-gray-50 rounded-lg border">
+                                <h3 className="text-xl font-semibold mb-2 text-center">Add Registrations in Bulk</h3>
+                                <p className="text-center text-sm text-gray-500 mb-4">
+                                    Paste data below. Each entry on a new line.<br />
+                                    Format: <code className="bg-gray-200 px-1 rounded">REGISTRATION_NUMBER,STUDENT_NAME</code>
+                                </p>
+                                <div className="space-y-4">
+                                    <textarea
+                                        placeholder={"F/HD/21/123456,John Doe\nF/HD/21/654321,Jane Smith"}
+                                        value={bulkRegData}
+                                        onChange={e => setBulkRegData(e.target.value)}
+                                        className="w-full p-3 border rounded-lg h-40 font-mono text-sm"
+                                        rows={10}
+                                        disabled={loading}
+                                    />
+                                    <button 
+                                        type="button" 
+                                        onClick={handleBulkAddRegistrations}
+                                        disabled={loading} 
+                                        className="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition disabled:bg-green-300 flex items-center justify-center gap-2">
+                                        {loading ? <><i className="fas fa-spinner fa-spin"></i> Processing...</> : <><i className="fas fa-file-upload"></i> Import Bulk Data</>}
                                     </button>
                                 </div>
                             </div>
-                            {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
-                        </form>
-                        <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({filteredRegistrations.length}/{registrations.length})</h3>
-                        <div className="max-w-xl mx-auto mb-4 relative">
-                           <input
-                               type="text"
-                               placeholder="Search by name or registration number..."
-                               value={registrationSearchTerm}
-                               onChange={e => setRegistrationSearchTerm(e.target.value)}
-                               className="w-full p-3 pl-10 border rounded-lg"
-                           />
-                           <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                            
+                            {formMessage && <div className={`p-3 rounded-lg text-center text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                         </div>
-                        <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2">
-                            {registrations.length === 0 ? (
-                                <p className="text-center text-gray-500">No registration numbers added yet.</p>
-                            ) : filteredRegistrations.length === 0 ? (
-                                <p className="text-center text-gray-500">No registrations found matching your search.</p>
-                            ) : (
-                                filteredRegistrations.map((reg, index) => (
-                                    <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
-                                        <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
-                                        <div className="flex-grow">
-                                            <p className="font-bold text-slate-800">{reg.student_name}</p>
-                                            <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                        
+                        <div className="mt-8">
+                            <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({filteredRegistrations.length}/{registrations.length})</h3>
+                            <div className="max-w-xl mx-auto mb-4 relative">
+                               <input
+                                   type="text"
+                                   placeholder="Search by name or registration number..."
+                                   value={registrationSearchTerm}
+                                   onChange={e => setRegistrationSearchTerm(e.target.value)}
+                                   className="w-full p-3 pl-10 border rounded-lg"
+                               />
+                               <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                            </div>
+                            <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2 max-w-xl mx-auto">
+                                {registrations.length === 0 ? (
+                                    <p className="text-center text-gray-500">No registration numbers added yet.</p>
+                                ) : filteredRegistrations.length === 0 ? (
+                                    <p className="text-center text-gray-500">No registrations found matching your search.</p>
+                                ) : (
+                                    filteredRegistrations.map((reg, index) => (
+                                        <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                            <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
+                                            <div className="flex-grow">
+                                                <p className="font-bold text-slate-800">{reg.student_name}</p>
+                                                <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                                            </div>
+                                            <div className="flex gap-3">
+                                                <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
+                                                <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
+                                            </div>
                                         </div>
-                                        <div className="flex gap-3">
-                                            <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
-                                            <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </Page>
                 );
