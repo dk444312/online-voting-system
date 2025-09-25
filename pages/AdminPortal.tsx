@@ -455,7 +455,6 @@ const AdminPortal: React.FC = () => {
                 await supabase.from('physical_votes').delete().neq('id', 0);
                 await supabase.from('candidates').delete().neq('id', 0);
                 await supabase.from('voters').delete().neq('id', 0);
-                await supabase.from('registrations').delete().neq('id', 0);
                 await supabase.from('settings').delete().eq('key', 'voting_deadline');
                 await supabase.from('settings').delete().eq('key', 'registration_deadline');
                 alert('Election data has been reset.');
