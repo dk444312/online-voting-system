@@ -1,11 +1,9 @@
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { supabase } from '../services/supabaseClient'; // NOTE: This file is part of your existing project and is not provided.
+import { supabase } from '../services/supabaseClient';
 import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
-type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS';
+type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS';
 
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
@@ -106,9 +104,8 @@ const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
           fill="#8884d8"
           dataKey="value"
           labelLine={false}
-          // Fix: The explicit type on the label prop callback was causing a TypeScript error.
-          // Removing it allows TypeScript to correctly infer the types. A check for null/undefined percent is added.
-          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+          // FIX: Using `any` to bypass a complex typing issue with recharts library's PieLabelRenderProps.
+          label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
             if (percent == null || percent === 0) return null;
             const RADIAN = Math.PI / 180;
             const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
@@ -138,11 +135,11 @@ interface CandidatesChartProps {
 const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates }) => {
   if (candidates.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No candidates added yet.</div>;
   
-  const positionCounts = candidates.reduce((acc, candidate) => {
+  const positionCounts = candidates.reduce<Record<string, number>>((acc, candidate) => {
     const pos = candidate.position || "Unspecified";
     acc[pos] = (acc[pos] || 0) + 1;
     return acc;
-  }, {} as Record<string, number>);
+  }, {});
 
   const data = Object.keys(positionCounts).map(position => ({
     name: position,
@@ -165,6 +162,89 @@ const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates
     </ResponsiveContainer>
   );
 };
+
+interface VoteShareChartProps {
+  candidate: Candidate & { votes: number };
+  positionTotalVotes: number;
+}
+const CandidateVoteShareChart: React.FC<VoteShareChartProps> = ({ candidate, positionTotalVotes }) => {
+  const data = [
+    { name: candidate.name, value: candidate.votes },
+    { name: 'Other Candidates', value: positionTotalVotes - candidate.votes },
+  ];
+  const COLORS = ['#a855f7', '#334155'];
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <PieChart>
+        <Pie data={data} cx="50%" cy="50%" innerRadius={60} outerRadius={90} fill="#8884d8" paddingAngle={5} dataKey="value">
+          {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+        </Pie>
+        <Tooltip 
+            formatter={(value: number, name: string) => [`${value} votes`, name]}
+            contentStyle={{ backgroundColor: 'rgb(30 41 59 / 0.9)', borderColor: '#475569', color: '#e2e8f0', borderRadius: '0.75rem' }}
+        />
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-3xl font-bold fill-white">
+          {positionTotalVotes > 0 ? `${((candidate.votes / positionTotalVotes) * 100).toFixed(1)}%` : '0%'}
+        </text>
+        <text x="50%" y="50%" dy={25} textAnchor="middle" className="text-md fill-slate-400">
+          Vote Share
+        </text>
+      </PieChart>
+    </ResponsiveContainer>
+  );
+};
+
+interface VoterTypeBreakdownProps {
+    voters: Voter[];
+}
+const VoterTypeBreakdown: React.FC<VoterTypeBreakdownProps> = ({ voters }) => {
+    if (voters.length === 0) {
+        return <div className="text-center text-gray-500 py-8">No voter data available.</div>;
+    }
+
+    const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+    const onlineVotersCount = voters.length - physicalVotersCount;
+    const totalVoters = voters.length;
+    const onlinePercentage = totalVoters > 0 ? (onlineVotersCount / totalVoters) * 100 : 0;
+    const physicalPercentage = totalVoters > 0 ? (physicalVotersCount / totalVoters) * 100 : 0;
+
+    return (
+        <div className="bg-slate-800 text-white p-6 rounded-2xl shadow-lg border border-slate-700 h-full">
+            <h3 className="text-xl font-semibold mb-4 text-center text-slate-300">Voter DNA</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
+                <div className="bg-slate-700/50 p-4 rounded-lg">
+                    <i className="fas fa-desktop text-3xl text-cyan-400 mb-2"></i>
+                    <p className="text-lg font-semibold text-slate-300">Online Voters</p>
+                    <p className="text-4xl font-bold text-white">{onlineVotersCount}</p>
+                    <p className="text-cyan-400 font-semibold">{onlinePercentage.toFixed(1)}%</p>
+                </div>
+                <div className="bg-slate-700/50 p-4 rounded-lg">
+                    <i className="fas fa-walking text-3xl text-amber-400 mb-2"></i>
+                    <p className="text-lg font-semibold text-slate-300">Physical Voters</p>
+                    <p className="text-4xl font-bold text-white">{physicalVotersCount}</p>
+                    <p className="text-amber-400 font-semibold">{physicalPercentage.toFixed(1)}%</p>
+                </div>
+            </div>
+            <div className="flex w-full h-3 mt-4 rounded-full overflow-hidden bg-slate-600">
+                <div style={{ width: `${onlinePercentage}%` }} className="bg-cyan-400 transition-all duration-500"></div>
+                <div style={{ width: `${physicalPercentage}%` }} className="bg-amber-400 transition-all duration-500"></div>
+            </div>
+        </div>
+    );
+};
+
+const StatCard: React.FC<{ icon: string; title: string; value: string | number; color: string; className?: string; }> = ({ icon, title, value, color, className }) => (
+    <div className={`bg-slate-800 p-5 rounded-xl border border-slate-700 flex items-center gap-4 transition-all hover:border-slate-600 hover:shadow-lg hover:-translate-y-1 ${className || ''}`}>
+        <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
+            <i className={`fas ${icon} text-xl text-white`}></i>
+        </div>
+        <div>
+            <p className="text-sm text-gray-400 font-medium">{title}</p>
+            <p className="text-3xl font-bold text-white">{value}</p>
+        </div>
+    </div>
+);
 
 
 const AdminPortal: React.FC = () => {
@@ -215,6 +295,16 @@ const AdminPortal: React.FC = () => {
     const [voterSortOrder, setVoterSortOrder] = useState<'asc' | 'desc'>('desc');
     const [voterStatusFilter, setVoterStatusFilter] = useState<'all' | 'voted' | 'pending'>('all');
     const [voterTypeFilter, setVoterTypeFilter] = useState<'all' | 'physical' | 'online'>('all');
+
+    // Statistics View State
+    const [selectedCandidateStats, setSelectedCandidateStats] = useState<(Candidate & { votes: number, percentage: string, position: string }) | null>(null);
+    const [recentVoters, setRecentVoters] = useState<{ registration_number: string; full_name: string; }[]>([]);
+    const [selectedPositionStats, setSelectedPositionStats] = useState<string | null>(null);
+
+    // Live Tracking State
+    const [isLive, setIsLive] = useState(false);
+    const [newVoteToast, setNewVoteToast] = useState<string | null>(null);
+    const [flashVotesCard, setFlashVotesCard] = useState(false);
 
 
     // --- AUTHENTICATION ---
@@ -351,25 +441,115 @@ const AdminPortal: React.FC = () => {
                     return {
                         ...c,
                         votes,
-                        percentage: totalVotesForPosition > 0 ? ((votes / totalVotesForPosition) * 100).toFixed(1) : 0,
+                        percentage: totalVotesForPosition > 0 ? ((votes / totalVotesForPosition) * 100).toFixed(1) : "0",
                     };
                 }).sort((a,b) => b.votes - a.votes)
             };
         });
         setResults(formattedResults);
-    }, [getFinalVoteCounts]);
+        if (formattedResults.length > 0 && formattedResults[0].candidates.length > 0) {
+            const allCandidates = formattedResults.flatMap(pos => pos.candidates).sort((a, b) => b.votes - a.votes);
+            if (!selectedCandidateStats) {
+                setSelectedCandidateStats(allCandidates[0] || null);
+            }
+        }
+    }, [getFinalVoteCounts, selectedCandidateStats]);
+    
+    const fetchRecentVoters = useCallback(async () => {
+        const { data: votesData, error: votesError } = await supabase
+            .from('votes')
+            .select('voter_id')
+            .order('created_at', { ascending: false })
+            .limit(7);
 
+        if (votesError || !votesData) {
+            console.error('Error fetching recent votes:', votesError);
+            return;
+        }
+
+        if (votesData.length === 0) {
+            setRecentVoters([]);
+            return;
+        }
+
+        const voterIds = votesData.map((v: any) => v.voter_id);
+
+        const { data: votersData, error: votersError } = await supabase
+            .from('voters')
+            .select('id, registration_number, full_name')
+            .in('id', voterIds);
+
+        if (votersError || !votersData) {
+            console.error('Error fetching recent voter details:', votersError);
+            return;
+        }
+
+        const voterMap = new Map(votersData.map((v: any) => [v.id, { registration_number: v.registration_number, full_name: v.full_name }]));
+        
+        const sortedRecentVoters = votesData
+            .map((vote: any) => voterMap.get(vote.voter_id))
+            .filter(v => v) as { registration_number: string; full_name: string; }[];
+            
+        setRecentVoters(sortedRecentVoters);
+    }, []);
 
     const loadAllData = useCallback(async () => {
-        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults()]);
-    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults]);
+        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters()]);
+    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters]);
 
     useEffect(() => {
         if (currentUser) {
             loadAllData();
         }
-         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentUser]);
+    }, [currentUser, loadAllData]);
+
+    // Supabase real-time subscription
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const handleNewVote = (payload: any) => {
+            console.log('New vote received!', payload);
+            loadAllData(); // Refresh all data
+            setNewVoteToast('A new vote has been registered!');
+            
+            setFlashVotesCard(true);
+            setTimeout(() => setFlashVotesCard(false), 1000); // Duration of the flash animation
+            
+            setTimeout(() => setNewVoteToast(null), 5000); // Hide toast after 5 seconds
+        };
+
+        const channel = supabase
+            .channel('public-db-changes')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, handleNewVote)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'physical_votes' }, handleNewVote)
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    setIsLive(true);
+                    console.log('Connected to real-time channel!');
+                } else {
+                    setIsLive(false);
+                }
+            });
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [currentUser, loadAllData]);
+    
+    // Auto-refresh for statistics view
+    useEffect(() => {
+        if (view === 'STATISTICS') {
+            const intervalId = setInterval(() => {
+                loadAllData();
+            }, 15000); // Refresh every 15 seconds
+
+            // Cleanup function to clear the interval when the component unmounts
+            // or the view changes away from STATISTICS
+            return () => {
+                clearInterval(intervalId);
+            };
+        }
+    }, [view, loadAllData]);
 
     useEffect(() => {
         const calculateTimeRemaining = () => {
@@ -407,7 +587,7 @@ const AdminPortal: React.FC = () => {
 
     useEffect(() => {
         if (!registrationDeadlineRaw) {
-            setIsRegistrationActive(true); // Default to open if not set for admin flexibility
+            setIsRegistrationActive(true); 
             return;
         }
         const deadlineDate = new Date(registrationDeadlineRaw);
@@ -451,10 +631,10 @@ const AdminPortal: React.FC = () => {
         if (window.confirm("Are you sure you want to reset all election data? This action cannot be undone.")) {
             setLoading(true);
             try {
-                await supabase.from('votes').delete().neq('id', 0);
-                await supabase.from('physical_votes').delete().neq('id', 0);
-                await supabase.from('candidates').delete().neq('id', 0);
-                await supabase.from('voters').delete().neq('id', 0);
+                await supabase.from('votes').delete().neq('id', '0');
+                await supabase.from('physical_votes').delete().neq('id', '0');
+                await supabase.from('candidates').delete().neq('id', '0');
+                await supabase.from('voters').delete().neq('id', '0');
                 await supabase.from('settings').delete().eq('key', 'voting_deadline');
                 await supabase.from('settings').delete().eq('key', 'registration_deadline');
                 alert('Election data has been reset.');
@@ -682,6 +862,7 @@ const AdminPortal: React.FC = () => {
             }
         }
     };
+    
 
     // --- RENDER LOGIC ---
     const filteredAndSortedVoters = voters
@@ -1055,16 +1236,20 @@ const AdminPortal: React.FC = () => {
                 </Page>
             );
             case 'RESULTS': return (
-                <Page title="Voting Statistics">
+                <Page title="Election Results">
                     <div className="space-y-6">
                         {results.length === 0 ? <p className="text-center text-gray-500">Results are not available yet.</p> :
                             results.map(pos => (
-                                <div key={pos.position} className="p-4 border rounded-lg">
-                                    <h3 className="text-xl font-bold mb-4">{pos.position}</h3>
-                                    <div className="space-y-3">
+                                <div key={pos.position} className="p-6 bg-slate-50 border rounded-xl">
+                                    <h3 className="text-2xl font-bold mb-4 text-slate-700">{pos.position}</h3>
+                                    <p className="text-sm text-gray-500 mb-4">Total Votes Cast: {pos.totalVotes}</p>
+                                    <div className="space-y-4">
                                         {pos.candidates.map((c: any, index: number) => (
-                                            <div key={c.id} className="flex items-start gap-3">
-                                                <span className="font-mono text-gray-600 pt-1 w-6 text-left">{index + 1}.</span>
+                                            <div key={c.id} className="flex items-center gap-4">
+                                                <div className={`text-2xl font-bold w-10 text-center ${index === 0 ? 'text-amber-400' : 'text-gray-400'}`}>
+                                                  {index === 0 ? <i className="fas fa-trophy"></i> : index + 1}
+                                                </div>
+                                                <img src={c.photo_url} alt={c.name} className="w-14 h-14 rounded-full object-cover"/>
                                                 <div className="flex-grow">
                                                     <div className="flex justify-between items-center mb-1">
                                                         <span className="font-semibold">{c.name}</span>
@@ -1088,6 +1273,145 @@ const AdminPortal: React.FC = () => {
                     </div>
                 </Page>
             );
+            case 'STATISTICS': {
+                const allCandidatesWithVotes = results.flatMap(pos => pos.candidates.map((c: any) => ({...c, position: pos.position}))).sort((a,b) => b.votes - a.votes);
+                
+                const handleSelectCandidate = (candidate: any) => {
+                    setSelectedCandidateStats(candidate);
+                };
+                const currentPosition = results.find(pos => pos.position === selectedCandidateStats?.position);
+                
+                return (
+                    <div className="space-y-6 animate-fade-in">
+                        {/* Top Row: Overall Stats */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <StatCard icon="fa-users" title="Candidates" value={dashboardStats.candidates} color="bg-purple-500" />
+                            <StatCard icon="fa-user-check" title="Registered Voters" value={dashboardStats.voters} color="bg-sky-500" />
+                            <StatCard 
+                                icon="fa-vote-yea" 
+                                title="Votes Cast" 
+                                value={dashboardStats.votes} 
+                                color="bg-emerald-500"
+                                className={flashVotesCard ? 'animate-flash' : ''}
+                            />
+                            <StatCard 
+                                icon="fa-chart-pie" 
+                                title="Voter Turnout" 
+                                value={`${dashboardStats.voters > 0 ? ((dashboardStats.votes / dashboardStats.voters) * 100).toFixed(1) : '0'}%`} 
+                                color="bg-amber-500" 
+                            />
+                        </div>
+
+                        {/* Middle Row: Main Chart & Voter DNA */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                           <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700 h-[400px] flex flex-col">
+                                <h3 className="text-xl font-semibold mb-4 text-slate-200 flex-shrink-0">Live Vote Feed</h3>
+                                <div className="flex-grow overflow-hidden relative">
+                                    <ul className="space-y-3">
+                                        {recentVoters.map((voter, index) => (
+                                            <li key={`${voter.registration_number}-${index}`} className="flex items-center gap-4 bg-slate-700/50 p-3 rounded-lg animate-slide-in-bottom">
+                                                <i className="fas fa-check-circle text-emerald-400"></i>
+                                                <div className="flex-grow">
+                                                    <p className="font-mono text-white font-semibold">{voter.registration_number}</p>
+                                                    <p className="text-sm text-slate-400">{voter.full_name}</p>
+                                                </div>
+                                                <span className="text-xs text-slate-500">Just now</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    {recentVoters.length === 0 && (
+                                        <div className="h-full flex items-center justify-center text-center text-slate-400">
+                                            <p>Waiting for new online votes...</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <VoterTypeBreakdown voters={voters} />
+                        </div>
+
+                        {/* Bottom Row: Candidate Performance & Position Breakdown */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Candidate Leaderboard & Chart */}
+                            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+                                    <h3 className="text-xl font-semibold mb-4 text-slate-200">Candidate Performance</h3>
+                                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                                        {allCandidatesWithVotes.length > 0 ? allCandidatesWithVotes.map((c, index) => (
+                                            <div 
+                                                key={c.id} 
+                                                onClick={() => handleSelectCandidate(c)}
+                                                className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors ${selectedCandidateStats?.id === c.id ? 'bg-slate-600/50' : 'hover:bg-slate-700/50'}`}
+                                            >
+                                                <span className="font-mono text-slate-400 w-6 text-center">{index + 1}</span>
+                                                <img src={c.photo_url} alt={c.name} className="w-10 h-10 rounded-full object-cover"/>
+                                                <div className="flex-grow">
+                                                    <p className="font-semibold text-white">{c.name}</p>
+                                                    <p className="text-sm text-slate-400">{c.position}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-lg text-white">{c.votes}</p>
+                                                    <p className="text-xs text-purple-400">{c.percentage}%</p>
+                                                </div>
+                                            </div>
+                                        )) : <p className="text-slate-400 text-center py-8">No candidates to display.</p>}
+                                    </div>
+                                </div>
+                                <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col items-center justify-center min-h-[400px]">
+                                    {selectedCandidateStats && currentPosition ? (
+                                        <>
+                                            <h4 className="text-xl font-semibold text-center text-slate-200 mb-2">{selectedCandidateStats.name}</h4>
+                                            <div className="w-full flex-grow">
+                                               <CandidateVoteShareChart candidate={selectedCandidateStats} positionTotalVotes={currentPosition.totalVotes} />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="text-center text-slate-400">
+                                            <i className="fas fa-mouse-pointer text-4xl mb-4"></i>
+                                            <p>Select a candidate to view their vote share details.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Position Breakdown */}
+                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+                                <h3 className="text-xl font-semibold mb-4 text-slate-200">Position Breakdown</h3>
+                                <select onChange={e => setSelectedPositionStats(e.target.value)} defaultValue="" className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-4">
+                                    <option value="" disabled>Select a position</option>
+                                    {results.map(pos => <option key={pos.position} value={pos.position}>{pos.position}</option>)}
+                                </select>
+                                {selectedPositionStats ? (() => {
+                                    const positionData = results.find(p => p.position === selectedPositionStats);
+                                    if (!positionData) return <p className="text-center text-slate-400 mt-4">Position data not found.</p>;
+
+                                    const chartData = positionData.candidates.map((c: any) => ({ name: c.name, votes: c.votes })).sort((a: any, b: any) => a.votes - b.votes);
+
+                                    return (
+                                        <div className="h-[300px]">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart
+                                                    data={chartData}
+                                                    margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
+                                                    layout="vertical"
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255, 255, 255, 0.1)" />
+                                                    <XAxis type="number" allowDecimals={false} stroke="#94a3b8" />
+                                                    <YAxis type="category" dataKey="name" stroke="#94a3b8" width={100} interval={0} tick={{ fontSize: 12 }} />
+                                                    <Tooltip 
+                                                        cursor={{ fill: 'rgba(200, 200, 200, 0.1)' }} 
+                                                        contentStyle={{ backgroundColor: 'rgb(30 41 59 / 0.9)', borderColor: '#475569', color: '#e2e8f0', borderRadius: '0.75rem' }}
+                                                    />
+                                                    <Bar dataKey="votes" fill="#a855f7" name="Total Votes" radius={[0, 4, 4, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    );
+                                })() : <p className="text-center text-slate-400 mt-4">Select a position to see vote distribution.</p>}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
             default: return <div>Select a view</div>;
         }
     };
@@ -1125,7 +1449,7 @@ const AdminPortal: React.FC = () => {
     const NavLink: React.FC<{ icon: string; label: AdminView; currentView: AdminView; setView: (view: AdminView) => void; }> = ({ icon, label, currentView, setView }) => (
         <li>
             <a href="#" onClick={(e) => { e.preventDefault(); setView(label); setSidebarOpen(false); setFormMessage(null); }}
-               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-blue-500 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
+               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
                 <i className={`fas ${icon} w-6 text-center`}></i>
                 <span>{label.charAt(0) + label.slice(1).toLowerCase()}</span>
             </a>
@@ -1133,13 +1457,85 @@ const AdminPortal: React.FC = () => {
     );
 
     return (
-        <div className="min-h-screen bg-slate-100 text-slate-800">
+      <>
+        <style>
+          {`
+            @keyframes flash {
+                0%, 100% {
+                    background-color: #1e293b; /* slate-800 */
+                }
+                50% {
+                    background-color: #5b21b6; /* purple-700 for a noticeable flash */
+                }
+            }
+            .animate-flash {
+                animation: flash 1s ease-in-out;
+            }
+
+            @keyframes fade-in-out {
+                0% {
+                    opacity: 0;
+                    transform: translateY(20px);
+                }
+                10% {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+                90% {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+                100% {
+                    opacity: 0;
+                    transform: translateY(20px);
+                }
+            }
+            .animate-fade-in-out {
+                animation: fade-in-out 5s forwards;
+            }
+
+            @keyframes slide-in-bottom {
+                0% {
+                    transform: translateY(20px);
+                    opacity: 0;
+                }
+                100% {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+            .animate-slide-in-bottom {
+                animation: slide-in-bottom 0.5s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+            }
+          `}
+        </style>
+        <div className={`min-h-screen text-slate-800 ${view === 'STATISTICS' ? 'bg-slate-900' : 'bg-slate-100'}`}>
+            {/* Live Status Indicator & Toast */}
+            {isLive && (
+                <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-slate-800 text-white px-3 py-1.5 rounded-full text-sm shadow-lg border border-slate-700">
+                    <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                    </span>
+                    Live
+                </div>
+            )}
+            {newVoteToast && (
+                <div className="fixed bottom-4 right-4 z-50 bg-purple-600 text-white px-6 py-3 rounded-lg shadow-xl animate-fade-in-out">
+                    <i className="fas fa-vote-yea mr-2"></i> {newVoteToast}
+                </div>
+            )}
+
             {/* Mobile Header */}
             <header className="md:hidden bg-slate-800 text-white p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-20 shadow-lg">
-                <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="text-2xl">
-                    <i className="fas fa-bars"></i>
-                </button>
-                <div className="text-lg font-bold">Admin Portal</div>
+                {view !== 'STATISTICS' ? (
+                    <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="text-2xl w-8 text-center">
+                        <i className="fas fa-bars"></i>
+                    </button>
+                ) : (
+                    <div className="w-8"></div> // Placeholder to keep title centered
+                )}
+                <div className="text-lg font-bold flex-grow text-center">{view.charAt(0) + view.slice(1).toLowerCase()}</div>
                 <div className="flex items-center gap-2">
                     <i className="fas fa-user-shield"></i>
                     <span>{currentUser.username}</span>
@@ -1147,31 +1543,37 @@ const AdminPortal: React.FC = () => {
             </header>
             
             {/* Sidebar */}
-            <aside className={`bg-slate-800 text-white w-64 fixed top-0 left-0 h-full z-30 transform transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-                <nav className="p-4 pt-8">
-                    <h2 className="text-2xl font-bold text-center mb-8 border-b border-slate-600 pb-4">Voting Panel</h2>
-                    <ul className="space-y-3">
-                       <NavLink icon="fa-home" label="DASHBOARD" currentView={view} setView={setView} />
-                       <NavLink icon="fa-clock" label="DEADLINE" currentView={view} setView={setView} />
-                       <NavLink icon="fa-users" label="CANDIDATES" currentView={view} setView={setView} />
-                       <NavLink icon="fa-user-plus" label="VOTERS" currentView={view} setView={setView} />
-                       <NavLink icon="fa-id-card" label="REGISTRATIONS" currentView={view} setView={setView} />
-                       <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} setView={setView} />
-                       <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} setView={setView} />
-                    </ul>
-                </nav>
-            </aside>
+            {view !== 'STATISTICS' && (
+                <aside className={`bg-slate-800 text-white w-64 fixed top-0 left-0 h-full z-30 transform transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+                    <nav className="p-4 pt-8">
+                        <h2 className="text-2xl font-bold text-center mb-8 border-b border-slate-600 pb-4">Voting Panel</h2>
+                        <ul className="space-y-3">
+                            <NavLink icon="fa-home" label="DASHBOARD" currentView={view} setView={setView} />
+                            <NavLink icon="fa-clock" label="DEADLINE" currentView={view} setView={setView} />
+                            <NavLink icon="fa-users" label="CANDIDATES" currentView={view} setView={setView} />
+                            <NavLink icon="fa-user-plus" label="VOTERS" currentView={view} setView={setView} />
+                            <NavLink icon="fa-id-card" label="REGISTRATIONS" currentView={view} setView={setView} />
+                            <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} setView={setView} />
+                            <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} setView={setView} />
+                            <NavLink icon="fa-chart-pie" label="STATISTICS" currentView={view} setView={setView} />
+                        </ul>
+                    </nav>
+                </aside>
+            )}
             
             {/* Overlay for mobile */}
-            {isSidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black opacity-50 z-20 md:hidden"></div>}
+            {isSidebarOpen && view !== 'STATISTICS' && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black opacity-50 z-20 md:hidden"></div>}
 
             {/* Main Content */}
-            <main className="md:ml-64 pt-20 md:pt-8 p-4 sm:p-8">
-                 <h1 className="text-4xl font-bold text-slate-900 mb-2">Managing Portal</h1>
-                 <p className="text-slate-500 mb-8">Welcome, <span className="font-semibold">{currentUser.username}</span>. Manage your election from here.</p>
+            <main className={`${view === 'STATISTICS' ? '' : 'md:ml-64'} pt-20 md:pt-8 p-4 sm:p-8 transition-all duration-300`}>
+                 <h1 className={`text-4xl font-bold mb-2 ${view === 'STATISTICS' ? 'text-white' : 'text-slate-900'}`}>
+                    {view === 'STATISTICS' ? 'Election Tally Center' : 'Managing Portal'}
+                 </h1>
+                 <p className={`${view === 'STATISTICS' ? 'text-slate-400' : 'text-slate-500'} mb-8`}>Welcome, <span className="font-semibold">{currentUser.username}</span>. Manage your election from here.</p>
                 {renderView()}
             </main>
         </div>
+      </>
     );
 };
 
