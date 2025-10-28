@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { supabase } from '../services/supabaseClient';
 import type { Director, Candidate, Voter, Admin, Registration } from '../types';
@@ -46,7 +47,7 @@ const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
     { name: 'Voted', value: voted },
     { name: 'Pending', value: pending },
   ];
-  const COLORS = ['#10B981', '#F59E0B']; // Emerald-500, Amber-500
+  const COLORS = ['#10B981', '#64748b']; // Emerald-500, Slate-500
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -55,8 +56,8 @@ const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
           data={data}
           cx="50%"
           cy="50%"
-          innerRadius={70}
-          outerRadius={90}
+          innerRadius={80}
+          outerRadius={100}
           fill="#8884d8"
           paddingAngle={5}
           dataKey="value"
@@ -65,12 +66,12 @@ const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(value: number) => `${value} voters`}/>
-        <Legend iconType="circle" />
-        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-2xl font-bold fill-gray-700">
+        <Tooltip formatter={(value: number) => `${value} voters`} contentStyle={{ backgroundColor: 'rgb(30 41 59 / 0.9)', borderColor: '#475569', color: '#e2e8f0', borderRadius: '0.75rem' }}/>
+        <Legend iconType="circle" wrapperStyle={{color: '#e2e8f0'}}/>
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-3xl font-bold fill-white">
           {total > 0 ? `${((voted / total) * 100).toFixed(1)}%` : '0%'}
         </text>
-        <text x="50%" y="50%" dy={20} textAnchor="middle" className="text-sm fill-gray-500">
+        <text x="50%" y="50%" dy={25} textAnchor="middle" className="text-sm fill-slate-400">
           Turnout
         </text>
       </PieChart>
@@ -135,7 +136,7 @@ interface CandidatesChartProps {
 const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates }) => {
   if (candidates.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No candidates added yet.</div>;
   
-  const positionCounts = candidates.reduce<Record<string, number>>((acc, candidate) => {
+  const positionCounts = candidates.reduce((acc: Record<string, number>, candidate) => {
     const pos = candidate.position || "Unspecified";
     acc[pos] = (acc[pos] || 0) + 1;
     return acc;
@@ -159,38 +160,6 @@ const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates
         <Legend iconType="circle" />
         <Bar dataKey="Candidates" fill="#3B82F6" radius={[4, 4, 0, 0]} />
       </BarChart>
-    </ResponsiveContainer>
-  );
-};
-
-interface VoteShareChartProps {
-  candidate: Candidate & { votes: number };
-  positionTotalVotes: number;
-}
-const CandidateVoteShareChart: React.FC<VoteShareChartProps> = ({ candidate, positionTotalVotes }) => {
-  const data = [
-    { name: candidate.name, value: candidate.votes },
-    { name: 'Other Candidates', value: positionTotalVotes - candidate.votes },
-  ];
-  const COLORS = ['#a855f7', '#334155'];
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <PieChart>
-        <Pie data={data} cx="50%" cy="50%" innerRadius={60} outerRadius={90} fill="#8884d8" paddingAngle={5} dataKey="value">
-          {data.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-        </Pie>
-        <Tooltip 
-            formatter={(value: number, name: string) => [`${value} votes`, name]}
-            contentStyle={{ backgroundColor: 'rgb(30 41 59 / 0.9)', borderColor: '#475569', color: '#e2e8f0', borderRadius: '0.75rem' }}
-        />
-        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-3xl font-bold fill-white">
-          {positionTotalVotes > 0 ? `${((candidate.votes / positionTotalVotes) * 100).toFixed(1)}%` : '0%'}
-        </text>
-        <text x="50%" y="50%" dy={25} textAnchor="middle" className="text-md fill-slate-400">
-          Vote Share
-        </text>
-      </PieChart>
     </ResponsiveContainer>
   );
 };
@@ -246,6 +215,62 @@ const StatCard: React.FC<{ icon: string; title: string; value: string | number; 
     </div>
 );
 
+// --- NEW STATISTICS COMPONENTS ---
+
+const rankColors: { [key: number]: string } = {
+    1: 'border-amber-400 text-amber-400',
+    2: 'border-slate-400 text-slate-400',
+    3: 'border-amber-600 text-amber-600',
+};
+
+const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; rank: number; positionTotalVotes: number; }> = ({ candidate, isUpdated, rank, positionTotalVotes }) => {
+    const rankClass = rankColors[rank] || 'border-slate-600 text-slate-500';
+    const percentage = positionTotalVotes > 0 ? (candidate.votes / positionTotalVotes) * 100 : 0;
+
+    return (
+        <div className={`
+            bg-slate-800/50 border-2 rounded-2xl p-4 flex items-center gap-4 transition-all duration-500 relative overflow-hidden
+            ${isUpdated ? 'border-purple-500 shadow-lg shadow-purple-500/20 animate-glow' : rank === 1 ? 'border-amber-400/50' : 'border-slate-700'}
+        `}>
+            {isUpdated && <div className="absolute top-2 right-2 text-xs font-bold text-purple-400 animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
+            <div className={`w-12 h-12 text-3xl font-bold flex items-center justify-center flex-shrink-0 ${rankClass}`}>
+                {rank === 1 ? <i className="fas fa-trophy"></i> : rank}
+            </div>
+            <img src={candidate.photo_url} alt={candidate.name} className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"/>
+            <div className="flex-grow">
+                <p className="font-bold text-lg text-white">{candidate.name}</p>
+                <div className="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden">
+                    <div className="bg-gradient-to-r from-purple-500 to-indigo-500 h-3 rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
+                </div>
+            </div>
+            <div className={`text-right flex-shrink-0 w-24 ml-2 transition-transform duration-500 ${isUpdated ? 'scale-110' : ''}`}>
+                <p className={`text-4xl font-black ${isUpdated ? 'text-purple-400 animate-number-bump' : 'text-white'}`}>{candidate.votes}</p>
+                <p className="text-slate-400 font-semibold">{percentage.toFixed(1)}%</p>
+            </div>
+        </div>
+    );
+};
+
+const PositionRaceView: React.FC<{ positionResult: any; updatedCandidates: Set<string>; }> = ({ positionResult, updatedCandidates }) => {
+    return (
+        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+            <h3 className="text-3xl font-bold text-white mb-1">{positionResult.position}</h3>
+            <p className="text-slate-400 mb-6">Total Votes: <span className="font-bold text-slate-300">{positionResult.totalVotes}</span></p>
+            <div className="space-y-4">
+                {positionResult.candidates.map((c: any, index: number) => (
+                    <CandidateStatCard 
+                        key={c.id} 
+                        candidate={c}
+                        isUpdated={updatedCandidates.has(c.id)}
+                        rank={index + 1}
+                        positionTotalVotes={positionResult.totalVotes}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
 
 const AdminPortal: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<Director | null>(null);
@@ -297,14 +322,14 @@ const AdminPortal: React.FC = () => {
     const [voterTypeFilter, setVoterTypeFilter] = useState<'all' | 'physical' | 'online'>('all');
 
     // Statistics View State
-    const [selectedCandidateStats, setSelectedCandidateStats] = useState<(Candidate & { votes: number, percentage: string, position: string }) | null>(null);
     const [recentVoters, setRecentVoters] = useState<{ registration_number: string; full_name: string; }[]>([]);
-    const [selectedPositionStats, setSelectedPositionStats] = useState<string | null>(null);
-
-    // Live Tracking State
+    
+    // Live Tracking & Animation State
     const [isLive, setIsLive] = useState(false);
     const [newVoteToast, setNewVoteToast] = useState<string | null>(null);
     const [flashVotesCard, setFlashVotesCard] = useState(false);
+    const [updatedCandidates, setUpdatedCandidates] = useState<Set<string>>(new Set());
+    const prevResultsRef = useRef<any[]>();
 
 
     // --- AUTHENTICATION ---
@@ -447,18 +472,12 @@ const AdminPortal: React.FC = () => {
             };
         });
         setResults(formattedResults);
-        if (formattedResults.length > 0 && formattedResults[0].candidates.length > 0) {
-            const allCandidates = formattedResults.flatMap(pos => pos.candidates).sort((a, b) => b.votes - a.votes);
-            if (!selectedCandidateStats) {
-                setSelectedCandidateStats(allCandidates[0] || null);
-            }
-        }
-    }, [getFinalVoteCounts, selectedCandidateStats]);
+    }, [getFinalVoteCounts]);
     
     const fetchRecentVoters = useCallback(async () => {
         const { data: votesData, error: votesError } = await supabase
             .from('votes')
-            .select('voter_id')
+            .select('voter_id, created_at')
             .order('created_at', { ascending: false })
             .limit(7);
 
@@ -513,7 +532,7 @@ const AdminPortal: React.FC = () => {
             setNewVoteToast('A new vote has been registered!');
             
             setFlashVotesCard(true);
-            setTimeout(() => setFlashVotesCard(false), 1000); // Duration of the flash animation
+            setTimeout(() => setFlashVotesCard(false), 2000); // Duration of the flash animation
             
             setTimeout(() => setNewVoteToast(null), 5000); // Hide toast after 5 seconds
         };
@@ -538,18 +557,45 @@ const AdminPortal: React.FC = () => {
     
     // Auto-refresh for statistics view
     useEffect(() => {
-        if (view === 'STATISTICS') {
+        if (view === 'STATISTICS' && electionStatus === 'Active') {
             const intervalId = setInterval(() => {
                 loadAllData();
-            }, 15000); // Refresh every 15 seconds
-
-            // Cleanup function to clear the interval when the component unmounts
-            // or the view changes away from STATISTICS
-            return () => {
-                clearInterval(intervalId);
-            };
+            }, 10000); // Refresh every 10 seconds
+            return () => clearInterval(intervalId);
         }
-    }, [view, loadAllData]);
+    }, [view, loadAllData, electionStatus]);
+
+    // This effect detects changes in vote counts to trigger animations
+    useEffect(() => {
+        if (view === 'STATISTICS' && prevResultsRef.current && prevResultsRef.current.length > 0) {
+            const updates = new Set<string>();
+            const prevVoteMap = new Map<string, number>();
+            prevResultsRef.current.forEach(pos => {
+                pos.candidates.forEach((c: any) => {
+                    prevVoteMap.set(c.id, c.votes);
+                });
+            });
+
+            results.forEach(pos => {
+                pos.candidates.forEach((c: any) => {
+                    const prevVotes = prevVoteMap.get(c.id);
+                    if (prevVotes !== undefined && c.votes > prevVotes) {
+                        updates.add(c.id);
+                    }
+                });
+            });
+
+            if (updates.size > 0) {
+                setUpdatedCandidates(updates);
+                const timer = setTimeout(() => {
+                    setUpdatedCandidates(new Set());
+                }, 3000); // Animation highlight duration
+                return () => clearTimeout(timer);
+            }
+        }
+        prevResultsRef.current = results;
+    }, [results, view]);
+
 
     useEffect(() => {
         const calculateTimeRemaining = () => {
@@ -1200,10 +1246,7 @@ const AdminPortal: React.FC = () => {
                                                 <p className="font-bold text-slate-800">{reg.student_name}</p>
                                                 <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
                                             </div>
-                                            <div className="flex gap-3">
-                                                <button onClick={() => handleEditRegistration(reg)} className="text-blue-500 hover:text-blue-700 text-lg"><i className="fas fa-edit"></i></button>
-                                                <button onClick={() => handleDeleteRegistration(reg.id)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-trash"></i></button>
-                                            </div>
+                                           
                                         </div>
                                     ))
                                 )}
@@ -1274,139 +1317,68 @@ const AdminPortal: React.FC = () => {
                 </Page>
             );
             case 'STATISTICS': {
-                const allCandidatesWithVotes = results.flatMap(pos => pos.candidates.map((c: any) => ({...c, position: pos.position}))).sort((a,b) => b.votes - a.votes);
-                
-                const handleSelectCandidate = (candidate: any) => {
-                    setSelectedCandidateStats(candidate);
-                };
-                const currentPosition = results.find(pos => pos.position === selectedCandidateStats?.position);
-                
                 return (
                     <div className="space-y-6 animate-fade-in">
-                        {/* Top Row: Overall Stats */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            <StatCard icon="fa-users" title="Candidates" value={dashboardStats.candidates} color="bg-purple-500" />
-                            <StatCard icon="fa-user-check" title="Registered Voters" value={dashboardStats.voters} color="bg-sky-500" />
-                            <StatCard 
-                                icon="fa-vote-yea" 
-                                title="Votes Cast" 
-                                value={dashboardStats.votes} 
-                                color="bg-emerald-500"
-                                className={flashVotesCard ? 'animate-flash' : ''}
-                            />
-                            <StatCard 
-                                icon="fa-chart-pie" 
-                                title="Voter Turnout" 
-                                value={`${dashboardStats.voters > 0 ? ((dashboardStats.votes / dashboardStats.voters) * 100).toFixed(1) : '0'}%`} 
-                                color="bg-amber-500" 
-                            />
-                        </div>
-
-                        {/* Middle Row: Main Chart & Voter DNA */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                           <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700 h-[400px] flex flex-col">
-                                <h3 className="text-xl font-semibold mb-4 text-slate-200 flex-shrink-0">Live Vote Feed</h3>
-                                <div className="flex-grow overflow-hidden relative">
-                                    <ul className="space-y-3">
-                                        {recentVoters.map((voter, index) => (
-                                            <li key={`${voter.registration_number}-${index}`} className="flex items-center gap-4 bg-slate-700/50 p-3 rounded-lg animate-slide-in-bottom">
-                                                <i className="fas fa-check-circle text-emerald-400"></i>
-                                                <div className="flex-grow">
-                                                    <p className="font-mono text-white font-semibold">{voter.registration_number}</p>
-                                                    <p className="text-sm text-slate-400">{voter.full_name}</p>
-                                                </div>
-                                                <span className="text-xs text-slate-500">Just now</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    {recentVoters.length === 0 && (
-                                        <div className="h-full flex items-center justify-center text-center text-slate-400">
-                                            <p>Waiting for new online votes...</p>
-                                        </div>
-                                    )}
-                                </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            {/* Main column for position races */}
+                            <div className="lg:col-span-2 space-y-8">
+                                {results.length > 0 ? (
+                                    results.map(pos => (
+                                        <PositionRaceView 
+                                            key={pos.position} 
+                                            positionResult={pos} 
+                                            updatedCandidates={updatedCandidates} 
+                                        />
+                                    ))
+                                ) : (
+                                    <div className="bg-slate-800 text-slate-400 text-center p-10 rounded-2xl border border-slate-700">
+                                        <i className="fas fa-poll text-4xl mb-4"></i>
+                                        <h3 className="text-xl font-bold text-white">Awaiting Results</h3>
+                                        <p>Vote counts will appear here as they are tallied.</p>
+                                    </div>
+                                )}
                             </div>
-                            <VoterTypeBreakdown voters={voters} />
-                        </div>
-
-                        {/* Bottom Row: Candidate Performance & Position Breakdown */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Candidate Leaderboard & Chart */}
-                            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
+                            {/* Sidebar for overall stats and live feed */}
+                            <div className="lg:col-span-1 space-y-6">
+                                <StatCard 
+                                    icon="fa-vote-yea" 
+                                    title="Total Votes Cast" 
+                                    value={dashboardStats.votes} 
+                                    color="bg-emerald-500"
+                                    className={flashVotesCard ? 'animate-flash' : ''}
+                                />
                                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                                    <h3 className="text-xl font-semibold mb-4 text-slate-200">Candidate Performance</h3>
-                                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-                                        {allCandidatesWithVotes.length > 0 ? allCandidatesWithVotes.map((c, index) => (
-                                            <div 
-                                                key={c.id} 
-                                                onClick={() => handleSelectCandidate(c)}
-                                                className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors ${selectedCandidateStats?.id === c.id ? 'bg-slate-600/50' : 'hover:bg-slate-700/50'}`}
-                                            >
-                                                <span className="font-mono text-slate-400 w-6 text-center">{index + 1}</span>
-                                                <img src={c.photo_url} alt={c.name} className="w-10 h-10 rounded-full object-cover"/>
-                                                <div className="flex-grow">
-                                                    <p className="font-semibold text-white">{c.name}</p>
-                                                    <p className="text-sm text-slate-400">{c.position}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="font-bold text-lg text-white">{c.votes}</p>
-                                                    <p className="text-xs text-purple-400">{c.percentage}%</p>
-                                                </div>
+                                    <h3 className="text-xl font-semibold text-slate-200 mb-4 text-center">Voter Turnout</h3>
+                                    <VoterTurnoutChart voted={dashboardStats.votes} total={dashboardStats.voters} />
+                                </div>
+                                <VoterTypeBreakdown voters={voters} />
+                                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 h-[400px] flex flex-col">
+                                    <h3 className="text-xl font-semibold mb-4 text-slate-200 flex-shrink-0 flex items-center gap-2">
+                                        <i className="fas fa-wave-square text-cyan-400"></i>
+                                        Live Vote Feed
+                                    </h3>
+                                    <div className="flex-grow overflow-y-auto pr-2">
+                                        <ul className="space-y-3">
+                                            {recentVoters.map((voter, index) => (
+                                                <li key={`${voter.registration_number}-${index}-${new Date().getTime()}`} className="flex items-center gap-4 bg-slate-700/50 p-3 rounded-lg animate-slide-in-bottom" style={{animationDelay: `${index * 100}ms`}}>
+                                                    <i className="fas fa-check-circle text-emerald-400"></i>
+                                                    <div className="flex-grow">
+                                                        <p className="font-mono text-sm text-white font-semibold">{voter.registration_number}</p>
+                                                        <p className="text-xs text-slate-400">{voter.full_name}</p>
+                                                    </div>
+                                                    <span className="text-xs text-slate-500 flex-shrink-0">Just now</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        {recentVoters.length === 0 && (
+                                            <div className="h-full flex items-center justify-center text-center text-slate-400">
+                                                <i className="fas fa-satellite-dish text-3xl mb-2"></i>
+                                                <p>Waiting for new online votes...</p>
                                             </div>
-                                        )) : <p className="text-slate-400 text-center py-8">No candidates to display.</p>}
+                                        )}
                                     </div>
                                 </div>
-                                <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col items-center justify-center min-h-[400px]">
-                                    {selectedCandidateStats && currentPosition ? (
-                                        <>
-                                            <h4 className="text-xl font-semibold text-center text-slate-200 mb-2">{selectedCandidateStats.name}</h4>
-                                            <div className="w-full flex-grow">
-                                               <CandidateVoteShareChart candidate={selectedCandidateStats} positionTotalVotes={currentPosition.totalVotes} />
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="text-center text-slate-400">
-                                            <i className="fas fa-mouse-pointer text-4xl mb-4"></i>
-                                            <p>Select a candidate to view their vote share details.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Position Breakdown */}
-                            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                                <h3 className="text-xl font-semibold mb-4 text-slate-200">Position Breakdown</h3>
-                                <select onChange={e => setSelectedPositionStats(e.target.value)} defaultValue="" className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-4">
-                                    <option value="" disabled>Select a position</option>
-                                    {results.map(pos => <option key={pos.position} value={pos.position}>{pos.position}</option>)}
-                                </select>
-                                {selectedPositionStats ? (() => {
-                                    const positionData = results.find(p => p.position === selectedPositionStats);
-                                    if (!positionData) return <p className="text-center text-slate-400 mt-4">Position data not found.</p>;
-
-                                    const chartData = positionData.candidates.map((c: any) => ({ name: c.name, votes: c.votes })).sort((a: any, b: any) => a.votes - b.votes);
-
-                                    return (
-                                        <div className="h-[300px]">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart
-                                                    data={chartData}
-                                                    margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                                                    layout="vertical"
-                                                >
-                                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255, 255, 255, 0.1)" />
-                                                    <XAxis type="number" allowDecimals={false} stroke="#94a3b8" />
-                                                    <YAxis type="category" dataKey="name" stroke="#94a3b8" width={100} interval={0} tick={{ fontSize: 12 }} />
-                                                    <Tooltip 
-                                                        cursor={{ fill: 'rgba(200, 200, 200, 0.1)' }} 
-                                                        contentStyle={{ backgroundColor: 'rgb(30 41 59 / 0.9)', borderColor: '#475569', color: '#e2e8f0', borderRadius: '0.75rem' }}
-                                                    />
-                                                    <Bar dataKey="votes" fill="#a855f7" name="Total Votes" radius={[0, 4, 4, 0]} />
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    );
-                                })() : <p className="text-center text-slate-400 mt-4">Select a position to see vote distribution.</p>}
                             </div>
                         </div>
                     </div>
@@ -1463,31 +1435,30 @@ const AdminPortal: React.FC = () => {
             @keyframes flash {
                 0%, 100% {
                     background-color: #1e293b; /* slate-800 */
+                    border-color: #334155; /* slate-700 */
                 }
                 50% {
-                    background-color: #5b21b6; /* purple-700 for a noticeable flash */
+                    background-color: #10b981; /* emerald-500 */
+                    border-color: #34d399; /* emerald-400 */
+
                 }
             }
             .animate-flash {
-                animation: flash 1s ease-in-out;
+                animation: flash 2s ease-in-out;
             }
 
             @keyframes fade-in-out {
                 0% {
                     opacity: 0;
-                    transform: translateY(20px);
+                    transform: translateY(10px);
                 }
-                10% {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-                90% {
+                10%, 90% {
                     opacity: 1;
                     transform: translateY(0);
                 }
                 100% {
                     opacity: 0;
-                    transform: translateY(20px);
+                    transform: translateY(-10px);
                 }
             }
             .animate-fade-in-out {
@@ -1506,6 +1477,28 @@ const AdminPortal: React.FC = () => {
             }
             .animate-slide-in-bottom {
                 animation: slide-in-bottom 0.5s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+            }
+            @keyframes glow {
+                0%, 100% {
+                    box-shadow: 0 0 5px rgba(168, 85, 247, 0), 0 0 5px rgba(168, 85, 247, 0);
+                }
+                50% {
+                    box-shadow: 0 0 20px rgba(168, 85, 247, 0.6), 0 0 30px rgba(168, 85, 247, 0.4);
+                }
+            }
+            .animate-glow {
+                animation: glow 3s ease-in-out;
+            }
+            @keyframes number-bump {
+                0%, 100% {
+                    transform: scale(1);
+                }
+                50% {
+                    transform: scale(1.25);
+                }
+            }
+            .animate-number-bump {
+                animation: number-bump 0.5s ease-in-out;
             }
           `}
         </style>
@@ -1578,3 +1571,4 @@ const AdminPortal: React.FC = () => {
 };
 
 export default AdminPortal;
+
