@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { supabase } from '../services/supabaseClient';
@@ -92,7 +91,7 @@ const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
       { name: 'Online', value: onlineVotersCount },
       { name: 'Physical', value: physicalVotersCount },
   ];
-  const COLORS = ['#3B82F6', '#8B5CF6']; // Blue-500, Violet-500
+  const COLORS = ['#3B82F6', '#60A5FA']; // Blue-500, Blue-400
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -223,33 +222,43 @@ const rankColors: { [key: number]: string } = {
     3: 'border-amber-600 text-amber-600',
 };
 
-const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; rank: number; positionTotalVotes: number; }> = ({ candidate, isUpdated, rank, positionTotalVotes }) => {
+const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; positionTotalVotes: number; }> = ({ candidate, isUpdated, positionTotalVotes }) => {
+    const { rank, isTied, votes, name, photo_url } = candidate;
     const rankClass = rankColors[rank] || 'border-slate-600 text-slate-500';
-    const percentage = positionTotalVotes > 0 ? (candidate.votes / positionTotalVotes) * 100 : 0;
+    const percentage = positionTotalVotes > 0 ? (votes / positionTotalVotes) * 100 : 0;
 
     return (
         <div className={`
             bg-slate-800/50 border-2 rounded-2xl p-4 flex items-center gap-4 transition-all duration-500 relative overflow-hidden
-            ${isUpdated ? 'border-purple-500 shadow-lg shadow-purple-500/20 animate-glow' : rank === 1 ? 'border-amber-400/50' : 'border-slate-700'}
+            ${isUpdated ? 'border-blue-500 shadow-lg shadow-blue-500/20 animate-glow' : rank === 1 ? 'border-amber-400/50' : 'border-slate-700'}
+            ${isTied ? 'shadow-lg shadow-green-500/40' : ''}
         `}>
-            {isUpdated && <div className="absolute top-2 right-2 text-xs font-bold text-purple-400 animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
+            {isUpdated && <div className="absolute top-2 right-2 text-xs font-bold text-blue-400 animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
+            
+            {isTied && (
+                <div className="absolute top-2 left-3 text-xs font-bold text-green-400 bg-green-900/50 px-2 py-0.5 rounded-full">
+                    VOTES TIED
+                </div>
+            )}
+
             <div className={`w-12 h-12 text-3xl font-bold flex items-center justify-center flex-shrink-0 ${rankClass}`}>
                 {rank === 1 ? <i className="fas fa-trophy"></i> : rank}
             </div>
-            <img src={candidate.photo_url} alt={candidate.name} className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"/>
+            <img src={photo_url} alt={name} className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"/>
             <div className="flex-grow">
-                <p className="font-bold text-lg text-white">{candidate.name}</p>
+                <p className="font-bold text-lg text-white">{name}</p>
                 <div className="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden">
-                    <div className="bg-gradient-to-r from-purple-500 to-indigo-500 h-3 rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
+                    <div className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
                 </div>
             </div>
             <div className={`text-right flex-shrink-0 w-24 ml-2 transition-transform duration-500 ${isUpdated ? 'scale-110' : ''}`}>
-                <p className={`text-4xl font-black ${isUpdated ? 'text-purple-400 animate-number-bump' : 'text-white'}`}>{candidate.votes}</p>
+                <p className={`text-4xl font-black ${isUpdated ? 'text-blue-400 animate-number-bump' : 'text-white'}`}>{votes}</p>
                 <p className="text-slate-400 font-semibold">{percentage.toFixed(1)}%</p>
             </div>
         </div>
     );
 };
+
 
 const PositionRaceView: React.FC<{ positionResult: any; updatedCandidates: Set<string>; }> = ({ positionResult, updatedCandidates }) => {
     return (
@@ -257,12 +266,11 @@ const PositionRaceView: React.FC<{ positionResult: any; updatedCandidates: Set<s
             <h3 className="text-3xl font-bold text-white mb-1">{positionResult.position}</h3>
             <p className="text-slate-400 mb-6">Total Votes: <span className="font-bold text-slate-300">{positionResult.totalVotes}</span></p>
             <div className="space-y-4">
-                {positionResult.candidates.map((c: any, index: number) => (
+                {positionResult.candidates.map((c: any) => (
                     <CandidateStatCard 
                         key={c.id} 
                         candidate={c}
                         isUpdated={updatedCandidates.has(c.id)}
-                        rank={index + 1}
                         positionTotalVotes={positionResult.totalVotes}
                     />
                 ))}
@@ -458,17 +466,35 @@ const AdminPortal: React.FC = () => {
         const formattedResults = positions.map(position => {
             const candidatesForPosition = typedCandidates.filter(c => c.position === position);
             const totalVotesForPosition = candidatesForPosition.reduce((sum, c) => sum + (voteCounts.get(c.id) || 0), 0);
+
+            const sortedCandidates = candidatesForPosition.map(c => {
+                const votes = voteCounts.get(c.id) || 0;
+                return {
+                    ...c,
+                    votes,
+                    percentage: totalVotesForPosition > 0 ? ((votes / totalVotesForPosition) * 100).toFixed(1) : "0",
+                };
+            }).sort((a, b) => b.votes - a.votes);
+
+            let lastVotes = -1;
+            let currentRank = 0;
+            const rankedCandidates = sortedCandidates.map((c, index) => {
+                if (c.votes !== lastVotes) {
+                    currentRank = index + 1;
+                    lastVotes = c.votes;
+                }
+                return { ...c, rank: currentRank };
+            });
+
+            const finalCandidates = rankedCandidates.map(c => {
+                const isTied = rankedCandidates.filter(other => other.votes === c.votes).length > 1 && c.votes > 0;
+                return { ...c, isTied };
+            });
+
             return {
                 position,
                 totalVotes: totalVotesForPosition,
-                candidates: candidatesForPosition.map(c => {
-                    const votes = voteCounts.get(c.id) || 0;
-                    return {
-                        ...c,
-                        votes,
-                        percentage: totalVotesForPosition > 0 ? ((votes / totalVotesForPosition) * 100).toFixed(1) : "0",
-                    };
-                }).sort((a,b) => b.votes - a.votes)
+                candidates: finalCandidates,
             };
         });
         setResults(formattedResults);
@@ -1141,7 +1167,7 @@ const AdminPortal: React.FC = () => {
                                filteredAndSortedVoters.map((v: Voter) => {
                                     const isPhysical = /[0-9]/.test(v.username);
                                     const voterTypeLabel = isPhysical ? 'Physical' : 'Online';
-                                    const labelColorClasses = isPhysical ? 'text-purple-800 bg-purple-100' : 'text-blue-800 bg-blue-100';
+                                    const labelColorClasses = isPhysical ? 'text-violet-800 bg-violet-100' : 'text-blue-800 bg-blue-100';
                                     const voterNumber = voterNumberMap.get(v.id);
     
                                     return (
@@ -1287,16 +1313,19 @@ const AdminPortal: React.FC = () => {
                                     <h3 className="text-2xl font-bold mb-4 text-slate-700">{pos.position}</h3>
                                     <p className="text-sm text-gray-500 mb-4">Total Votes Cast: {pos.totalVotes}</p>
                                     <div className="space-y-4">
-                                        {pos.candidates.map((c: any, index: number) => (
-                                            <div key={c.id} className="flex items-center gap-4">
-                                                <div className={`text-2xl font-bold w-10 text-center ${index === 0 ? 'text-amber-400' : 'text-gray-400'}`}>
-                                                  {index === 0 ? <i className="fas fa-trophy"></i> : index + 1}
+                                        {pos.candidates.map((c: any) => (
+                                            <div key={c.id} className={`flex items-center gap-4 p-2 rounded-lg transition-all ${c.isTied ? 'shadow-lg shadow-green-500/30 ring-1 ring-green-500/20' : ''}`}>
+                                                <div className={`text-2xl font-bold w-10 text-center ${c.rank === 1 ? 'text-amber-400' : 'text-gray-400'}`}>
+                                                  {c.rank === 1 ? <i className="fas fa-trophy"></i> : c.rank}
                                                 </div>
                                                 <img src={c.photo_url} alt={c.name} className="w-14 h-14 rounded-full object-cover"/>
                                                 <div className="flex-grow">
                                                     <div className="flex justify-between items-center mb-1">
                                                         <span className="font-semibold">{c.name}</span>
-                                                        <span className="text-sm font-bold text-blue-600">{c.votes} votes ({c.percentage}%)</span>
+                                                        <div className="flex items-center gap-4">
+                                                           {c.isTied && <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">VOTES TIED</span>}
+                                                           <span className="text-sm font-bold text-blue-600">{c.votes} votes ({c.percentage}%)</span>
+                                                        </div>
                                                     </div>
                                                     <div className="w-full bg-gray-200 rounded-full h-2.5">
                                                         <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${c.percentage}%` }}></div>
@@ -1421,7 +1450,7 @@ const AdminPortal: React.FC = () => {
     const NavLink: React.FC<{ icon: string; label: AdminView; currentView: AdminView; setView: (view: AdminView) => void; }> = ({ icon, label, currentView, setView }) => (
         <li>
             <a href="#" onClick={(e) => { e.preventDefault(); setView(label); setSidebarOpen(false); setFormMessage(null); }}
-               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
+               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
                 <i className={`fas ${icon} w-6 text-center`}></i>
                 <span>{label.charAt(0) + label.slice(1).toLowerCase()}</span>
             </a>
@@ -1480,10 +1509,10 @@ const AdminPortal: React.FC = () => {
             }
             @keyframes glow {
                 0%, 100% {
-                    box-shadow: 0 0 5px rgba(168, 85, 247, 0), 0 0 5px rgba(168, 85, 247, 0);
+                    box-shadow: 0 0 5px rgba(59, 130, 246, 0), 0 0 5px rgba(59, 130, 246, 0);
                 }
                 50% {
-                    box-shadow: 0 0 20px rgba(168, 85, 247, 0.6), 0 0 30px rgba(168, 85, 247, 0.4);
+                    box-shadow: 0 0 20px rgba(59, 130, 246, 0.6), 0 0 30px rgba(59, 130, 246, 0.4);
                 }
             }
             .animate-glow {
@@ -1514,7 +1543,7 @@ const AdminPortal: React.FC = () => {
                 </div>
             )}
             {newVoteToast && (
-                <div className="fixed bottom-4 right-4 z-50 bg-purple-600 text-white px-6 py-3 rounded-lg shadow-xl animate-fade-in-out">
+                <div className="fixed bottom-4 right-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-xl animate-fade-in-out">
                     <i className="fas fa-vote-yea mr-2"></i> {newVoteToast}
                 </div>
             )}
@@ -1571,4 +1600,3 @@ const AdminPortal: React.FC = () => {
 };
 
 export default AdminPortal;
-
