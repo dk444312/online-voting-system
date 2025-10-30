@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, Cart
 import { supabase } from '../services/supabaseClient';
 import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
-type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS';
+type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS' | 'SECURITY';
 
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
@@ -16,9 +16,9 @@ const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<H
                 placeholder={placeholder}
                 value={value}
                 onChange={onChange}
-                className="w-full p-4 pr-12 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                className="w-full p-4 pr-12 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500 transition"
             />
-            <button type="button" onClick={() => setShow(!show)} className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-500 hover:text-blue-600">
+            <button type="button" onClick={() => setShow(!show)} className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-500 hover:text-slate-600">
                 <i className={`fas ${show ? 'fa-eye-slash' : 'fa-eye'}`}></i>
             </button>
         </div>
@@ -46,7 +46,7 @@ const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
     { name: 'Voted', value: voted },
     { name: 'Pending', value: pending },
   ];
-  const COLORS = ['#10B981', '#64748b']; // Emerald-500, Slate-500
+  const COLORS = ['#475569', '#cbd5e1']; // Slate-600, Slate-300
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -91,7 +91,7 @@ const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
       { name: 'Online', value: onlineVotersCount },
       { name: 'Physical', value: physicalVotersCount },
   ];
-  const COLORS = ['#3B82F6', '#60A5FA']; // Blue-500, Blue-400
+  const COLORS = ['#334155', '#64748b']; // Slate-700, Slate-500
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -157,7 +157,7 @@ const CandidatesPerPositionChart: React.FC<CandidatesChartProps> = ({ candidates
         <YAxis allowDecimals={false} />
         <Tooltip cursor={{fill: 'rgba(241, 245, 249, 0.5)'}} />
         <Legend iconType="circle" />
-        <Bar dataKey="Candidates" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="Candidates" fill="#475569" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -182,21 +182,21 @@ const VoterTypeBreakdown: React.FC<VoterTypeBreakdownProps> = ({ voters }) => {
             <h3 className="text-xl font-semibold mb-4 text-center text-slate-300">Voter DNA</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
                 <div className="bg-slate-700/50 p-4 rounded-lg">
-                    <i className="fas fa-desktop text-3xl text-cyan-400 mb-2"></i>
+                    <i className="fas fa-desktop text-3xl text-slate-300 mb-2"></i>
                     <p className="text-lg font-semibold text-slate-300">Online Voters</p>
                     <p className="text-4xl font-bold text-white">{onlineVotersCount}</p>
-                    <p className="text-cyan-400 font-semibold">{onlinePercentage.toFixed(1)}%</p>
+                    <p className="text-slate-300 font-semibold">{onlinePercentage.toFixed(1)}%</p>
                 </div>
                 <div className="bg-slate-700/50 p-4 rounded-lg">
-                    <i className="fas fa-walking text-3xl text-amber-400 mb-2"></i>
+                    <i className="fas fa-walking text-3xl text-slate-300 mb-2"></i>
                     <p className="text-lg font-semibold text-slate-300">Physical Voters</p>
                     <p className="text-4xl font-bold text-white">{physicalVotersCount}</p>
-                    <p className="text-amber-400 font-semibold">{physicalPercentage.toFixed(1)}%</p>
+                    <p className="text-slate-300 font-semibold">{physicalPercentage.toFixed(1)}%</p>
                 </div>
             </div>
             <div className="flex w-full h-3 mt-4 rounded-full overflow-hidden bg-slate-600">
-                <div style={{ width: `${onlinePercentage}%` }} className="bg-cyan-400 transition-all duration-500"></div>
-                <div style={{ width: `${physicalPercentage}%` }} className="bg-amber-400 transition-all duration-500"></div>
+                <div style={{ width: `${onlinePercentage}%` }} className="bg-slate-300 transition-all duration-500"></div>
+                <div style={{ width: `${physicalPercentage}%` }} className="bg-slate-500 transition-all duration-500"></div>
             </div>
         </div>
     );
@@ -230,13 +230,13 @@ const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; position
     return (
         <div className={`
             bg-slate-800/50 border-2 rounded-2xl p-4 flex items-center gap-4 transition-all duration-500 relative overflow-hidden
-            ${isUpdated ? 'border-blue-500 shadow-lg shadow-blue-500/20 animate-glow' : rank === 1 ? 'border-amber-400/50' : 'border-slate-700'}
-            ${isTied ? 'shadow-lg shadow-green-500/40' : ''}
+            ${isUpdated ? 'border-white shadow-lg shadow-white/20 animate-glow' : rank === 1 ? 'border-amber-400/50' : 'border-slate-700'}
+            ${isTied ? 'shadow-lg shadow-slate-500/40' : ''}
         `}>
-            {isUpdated && <div className="absolute top-2 right-2 text-xs font-bold text-blue-400 animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
+            {isUpdated && <div className="absolute top-2 right-2 text-xs font-bold text-white animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
             
             {isTied && (
-                <div className="absolute top-2 left-3 text-xs font-bold text-green-400 bg-green-900/50 px-2 py-0.5 rounded-full">
+                <div className="absolute top-2 left-3 text-xs font-bold text-slate-300 bg-slate-900/50 px-2 py-0.5 rounded-full">
                     VOTES TIED
                 </div>
             )}
@@ -248,11 +248,11 @@ const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; position
             <div className="flex-grow">
                 <p className="font-bold text-lg text-white">{name}</p>
                 <div className="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
+                    <div className="bg-slate-400 h-3 rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
                 </div>
             </div>
             <div className={`text-right flex-shrink-0 w-24 ml-2 transition-transform duration-500 ${isUpdated ? 'scale-110' : ''}`}>
-                <p className={`text-4xl font-black ${isUpdated ? 'text-blue-400 animate-number-bump' : 'text-white'}`}>{votes}</p>
+                <p className={`text-4xl font-black ${isUpdated ? 'text-white animate-number-bump' : 'text-white'}`}>{votes}</p>
                 <p className="text-slate-400 font-semibold">{percentage.toFixed(1)}%</p>
             </div>
         </div>
@@ -331,6 +331,14 @@ const AdminPortal: React.FC = () => {
 
     // Statistics View State
     const [recentVoters, setRecentVoters] = useState<{ registration_number: string; full_name: string; }[]>([]);
+
+    // Security View State
+    const [securityData, setSecurityData] = useState<{
+        duplicateRegistrations: { registration_number: string; voters: Voter[] }[];
+        sessionTimings: (Voter & { vote_time?: string; duration?: number })[];
+    }>({ duplicateRegistrations: [], sessionTimings: [] });
+    const [sessionFilter, setSessionFilter] = useState<'all' | 'voted' | 'fast'>('all');
+    const [sessionSearch, setSessionSearch] = useState('');
     
     // Live Tracking & Animation State
     const [isLive, setIsLive] = useState(false);
@@ -538,9 +546,58 @@ const AdminPortal: React.FC = () => {
         setRecentVoters(sortedRecentVoters);
     }, []);
 
+    const fetchSecurityData = useCallback(async () => {
+        // 1. Fetch all voters and online votes
+        const { data: votersData, error: votersError } = await supabase.from('voters').select('*').order('created_at');
+        const { data: votesData, error: votesError } = await supabase.from('votes').select('voter_id, created_at');
+
+        if (votersError || votesError) {
+            console.error("Error fetching security data:", votersError || votesError);
+            return;
+        }
+
+        // 2. Analyze for duplicate registration numbers
+        const registrationMap = new Map<string, Voter[]>();
+        votersData?.forEach(voter => {
+            if (voter.registration_number) {
+                if (!registrationMap.has(voter.registration_number)) {
+                    registrationMap.set(voter.registration_number, []);
+                }
+                registrationMap.get(voter.registration_number)!.push(voter);
+            }
+        });
+
+        const duplicateRegistrations = Array.from(registrationMap.entries())
+            .filter(([_, votersList]) => votersList.length > 1)
+            .map(([registration_number, voters]) => ({ registration_number, voters }));
+
+        // 3. Analyze session timings for online voters
+        const voteTimeMap = new Map<string, string>();
+        votesData?.forEach(vote => {
+            voteTimeMap.set(vote.voter_id, vote.created_at);
+        });
+
+        const sessionTimings = votersData?.map(voter => {
+            const voteTime = voteTimeMap.get(voter.id);
+            let duration: number | undefined = undefined;
+            if (voteTime) {
+                const regTime = new Date(voter.created_at).getTime();
+                const vTime = new Date(voteTime).getTime();
+                duration = Math.round((vTime - regTime) / 1000); // duration in seconds
+            }
+            return {
+                ...voter,
+                vote_time: voteTime,
+                duration: duration,
+            };
+        }).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        setSecurityData({ duplicateRegistrations, sessionTimings: sessionTimings || [] });
+    }, []);
+
     const loadAllData = useCallback(async () => {
-        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters()]);
-    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters]);
+        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters(), fetchSecurityData()]);
+    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters, fetchSecurityData]);
 
     useEffect(() => {
         if (currentUser) {
@@ -981,23 +1038,23 @@ const AdminPortal: React.FC = () => {
             case 'DASHBOARD': return (
                 <Page title="Election Dashboard">
                     <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-6 rounded-xl mb-8 border-2 border-slate-200">
-                        <h3 className="text-xl font-semibold text-slate-700 mb-4 flex items-center gap-3"><i className="fas fa-info-circle text-blue-500"></i>Election Status</h3>
+                        <h3 className="text-xl font-semibold text-slate-700 mb-4 flex items-center gap-3"><i className="fas fa-info-circle text-slate-500"></i>Election Status</h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                          <p><strong>Voting Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm ${electionStatus === 'Active' ? 'bg-green-100 text-green-700' : electionStatus === 'Ended' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{electionStatus}</span></p>
-                          <p><strong>Registration Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm ${isRegistrationActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isRegistrationActive ? 'Open' : 'Closed'}</span></p>
+                          <p><strong>Voting Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm bg-slate-200 text-slate-800`}>{electionStatus}</span></p>
+                          <p><strong>Registration Status:</strong> <span className={`font-bold px-3 py-1 rounded-full text-sm bg-slate-200 text-slate-800`}>{isRegistrationActive ? 'Open' : 'Closed'}</span></p>
                           <p><strong>Voting Deadline:</strong> {deadline}</p>
                           <p><strong>Registration Deadline:</strong> {registrationDeadline}</p>
                           <p><strong>Time Remaining:</strong> {timeRemaining}</p>
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white p-6 rounded-xl shadow-lg text-center">
+                        <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg text-center">
                             <i className="fas fa-users text-4xl mb-2"></i><h4 className="font-bold text-lg">Candidates</h4><p className="text-4xl font-bold">{dashboardStats.candidates}</p>
                         </div>
-                        <div className="bg-gradient-to-br from-pink-500 to-rose-500 text-white p-6 rounded-xl shadow-lg text-center">
+                        <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg text-center">
                             <i className="fas fa-user-check text-4xl mb-2"></i><h4 className="font-bold text-lg">Registered Voters</h4><p className="text-4xl font-bold">{dashboardStats.voters}</p>
                         </div>
-                        <div className="bg-gradient-to-br from-cyan-400 to-sky-500 text-white p-6 rounded-xl shadow-lg text-center">
+                        <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg text-center">
                             <i className="fas fa-vote-yea text-4xl mb-2"></i><h4 className="font-bold text-lg">Votes Cast</h4>
                             <p className="text-4xl font-bold">{dashboardStats.votes}</p>
                             {dashboardStats.voters > 0 && (
@@ -1032,22 +1089,22 @@ const AdminPortal: React.FC = () => {
                         <div className="p-6 bg-gray-50 rounded-lg border">
                            <h3 className="text-xl font-semibold mb-4 text-center">Set Voter Registration Deadline</h3>
                            <div className="max-w-md mx-auto text-center">
-                               <input type="datetime-local" value={registrationDeadlineInput} onChange={e => setRegistrationDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
-                               <button onClick={handleSetRegistrationDeadline} disabled={loading} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-300">Set Registration Deadline</button>
+                               <input type="datetime-local" value={registrationDeadlineInput} onChange={e => setRegistrationDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500 transition" />
+                               <button onClick={handleSetRegistrationDeadline} disabled={loading} className="mt-4 w-full bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition-colors disabled:bg-slate-400">Set Registration Deadline</button>
                            </div>
                         </div>
                         <div className="p-6 bg-gray-50 rounded-lg border">
                            <h3 className="text-xl font-semibold mb-4 text-center">Set Voting Deadline</h3>
                            <div className="max-w-md mx-auto text-center">
-                               <input type="datetime-local" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
-                               <button onClick={handleSetDeadline} disabled={loading} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-300">Set Voting Deadline</button>
+                               <input type="datetime-local" value={deadlineInput} onChange={e => setDeadlineInput(e.target.value)} className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500 transition" />
+                               <button onClick={handleSetDeadline} disabled={loading} className="mt-4 w-full bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition-colors disabled:bg-slate-400">Set Voting Deadline</button>
                            </div>
                         </div>
                         {formMessage && <div className={`p-3 rounded-lg text-center text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                         <div className="p-6 bg-red-50 rounded-lg border border-red-200">
                            <h3 className="text-xl font-semibold mb-2 text-center text-red-800">Danger Zone</h3>
                            <p className="text-center text-red-600 mb-4 max-w-md mx-auto">Resetting the election will delete all voters, candidates, votes, and deadlines. This action cannot be undone.</p>
-                           <button onClick={handleResetElections} disabled={loading} className="w-full max-w-md mx-auto bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors disabled:bg-red-300">Reset Elections</button>
+                           <button onClick={handleResetElections} disabled={loading} className="w-full max-w-md mx-auto bg-red-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-800 transition-colors disabled:bg-red-400">Reset Elections</button>
                         </div>
                      </div>
                 </Page>
@@ -1059,8 +1116,8 @@ const AdminPortal: React.FC = () => {
                         <div className="space-y-4">
                             <input type="text" placeholder="Candidate Name" value={candidateName} onChange={e => setCandidateName(e.target.value)} className="w-full p-3 border rounded-lg" />
                             <input type="text" placeholder="Position" value={candidatePosition} onChange={e => setCandidatePosition(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <input id="candidate-photo" type="file" accept="image/*" onChange={e => setCandidatePhoto(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Candidate</button>
+                            <input id="candidate-photo" type="file" accept="image/*" onChange={e => setCandidatePhoto(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+                            <button type="submit" disabled={loading} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">Add Candidate</button>
                         </div>
                         {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     </form>
@@ -1096,10 +1153,10 @@ const AdminPortal: React.FC = () => {
 
                 return (
                     <Page title="Manage Voters">
-                       <div className="max-w-xl mx-auto mb-8 p-6 bg-blue-50 rounded-lg border border-blue-200 text-center">
-                            <i className="fas fa-info-circle text-blue-500 text-2xl mb-2"></i>
-                            <h3 className="text-xl font-semibold mb-2 text-blue-800">Voter Management</h3>
-                            <p className="text-blue-700">Students now register themselves by verifying their registration number. Add, edit, or remove eligible students in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-blue-800 hover:underline">Registrations</button> tab.</p>
+                       <div className="max-w-xl mx-auto mb-8 p-6 bg-slate-100 rounded-lg border border-slate-200 text-center">
+                            <i className="fas fa-info-circle text-slate-500 text-2xl mb-2"></i>
+                            <h3 className="text-xl font-semibold mb-2 text-slate-800">Voter Management</h3>
+                            <p className="text-slate-700">Students now register themselves by verifying their registration number. Add, edit, or remove eligible students in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-slate-800 hover:underline">Registrations</button> tab.</p>
                        </div>
                        <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
                        
@@ -1167,7 +1224,7 @@ const AdminPortal: React.FC = () => {
                                filteredAndSortedVoters.map((v: Voter) => {
                                     const isPhysical = /[0-9]/.test(v.username);
                                     const voterTypeLabel = isPhysical ? 'Physical' : 'Online';
-                                    const labelColorClasses = isPhysical ? 'text-violet-800 bg-violet-100' : 'text-blue-800 bg-blue-100';
+                                    const labelColorClasses = 'text-slate-800 bg-slate-200';
                                     const voterNumber = voterNumberMap.get(v.id);
     
                                     return (
@@ -1212,7 +1269,7 @@ const AdminPortal: React.FC = () => {
                                         {editingRegistration && (
                                             <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
                                         )}
-                                        <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">
+                                        <button type="submit" disabled={loading} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">
                                             {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
                                         </button>
                                     </div>
@@ -1238,7 +1295,7 @@ const AdminPortal: React.FC = () => {
                                         type="button" 
                                         onClick={handleBulkAddRegistrations}
                                         disabled={loading} 
-                                        className="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition disabled:bg-green-300 flex items-center justify-center gap-2">
+                                        className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400 flex items-center justify-center gap-2">
                                         {loading ? <><i className="fas fa-spinner fa-spin"></i> Processing...</> : <><i className="fas fa-file-upload"></i> Import Bulk Data</>}
                                     </button>
                                 </div>
@@ -1288,7 +1345,7 @@ const AdminPortal: React.FC = () => {
                         <div className="space-y-4">
                             <input type="text" placeholder="New Admin Username" value={newAdminUsername} onChange={e => setNewAdminUsername(e.target.value)} className="w-full p-3 border rounded-lg" />
                             <PasswordField id="new-admin-password" placeholder="New Admin Password" value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} />
-                            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300">Add Admin</button>
+                            <button type="submit" disabled={loading} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">Add Admin</button>
                         </div>
                         {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     </form>
@@ -1297,7 +1354,7 @@ const AdminPortal: React.FC = () => {
                         {admins.map((a, index) => (
                             <div key={a.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
                                 <span className="font-mono text-gray-500 w-8 text-left">{index + 1}.</span>
-                                <i className="fas fa-user-shield text-blue-500 text-xl"></i>
+                                <i className="fas fa-user-shield text-slate-500 text-xl"></i>
                                 <p className="font-semibold flex-grow">{a.username}</p>
                             </div>
                         ))}
@@ -1314,7 +1371,7 @@ const AdminPortal: React.FC = () => {
                                     <p className="text-sm text-gray-500 mb-4">Total Votes Cast: {pos.totalVotes}</p>
                                     <div className="space-y-4">
                                         {pos.candidates.map((c: any) => (
-                                            <div key={c.id} className={`flex items-center gap-4 p-2 rounded-lg transition-all ${c.isTied ? 'shadow-lg shadow-green-500/30 ring-1 ring-green-500/20' : ''}`}>
+                                            <div key={c.id} className={`flex items-center gap-4 p-2 rounded-lg transition-all ${c.isTied ? 'shadow-lg shadow-slate-500/30 ring-1 ring-slate-500/20' : ''}`}>
                                                 <div className={`text-2xl font-bold w-10 text-center ${c.rank === 1 ? 'text-amber-400' : 'text-gray-400'}`}>
                                                   {c.rank === 1 ? <i className="fas fa-trophy"></i> : c.rank}
                                                 </div>
@@ -1323,12 +1380,12 @@ const AdminPortal: React.FC = () => {
                                                     <div className="flex justify-between items-center mb-1">
                                                         <span className="font-semibold">{c.name}</span>
                                                         <div className="flex items-center gap-4">
-                                                           {c.isTied && <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">VOTES TIED</span>}
-                                                           <span className="text-sm font-bold text-blue-600">{c.votes} votes ({c.percentage}%)</span>
+                                                           {c.isTied && <span className="text-xs font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">VOTES TIED</span>}
+                                                           <span className="text-sm font-bold text-slate-800">{c.votes} votes ({c.percentage}%)</span>
                                                         </div>
                                                     </div>
                                                     <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                                        <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${c.percentage}%` }}></div>
+                                                        <div className="bg-slate-500 h-2.5 rounded-full" style={{ width: `${c.percentage}%` }}></div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1339,7 +1396,7 @@ const AdminPortal: React.FC = () => {
                         }
                     </div>
                     <div className="text-center mt-8">
-                         <button onClick={handlePostResults} disabled={loading} className="w-full max-w-sm mx-auto bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-300 flex items-center justify-center gap-2">
+                         <button onClick={handlePostResults} disabled={loading} className="w-full max-w-sm mx-auto bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition-colors disabled:bg-slate-400 flex items-center justify-center gap-2">
                             <i className="fas fa-bullhorn"></i> Post Results
                         </button>
                     </div>
@@ -1374,7 +1431,7 @@ const AdminPortal: React.FC = () => {
                                     icon="fa-vote-yea" 
                                     title="Total Votes Cast" 
                                     value={dashboardStats.votes} 
-                                    color="bg-emerald-500"
+                                    color="bg-slate-600"
                                     className={flashVotesCard ? 'animate-flash' : ''}
                                 />
                                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
@@ -1384,14 +1441,14 @@ const AdminPortal: React.FC = () => {
                                 <VoterTypeBreakdown voters={voters} />
                                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 h-[400px] flex flex-col">
                                     <h3 className="text-xl font-semibold mb-4 text-slate-200 flex-shrink-0 flex items-center gap-2">
-                                        <i className="fas fa-wave-square text-cyan-400"></i>
+                                        <i className="fas fa-wave-square text-slate-400"></i>
                                         Live Vote Feed
                                     </h3>
                                     <div className="flex-grow overflow-y-auto pr-2">
                                         <ul className="space-y-3">
                                             {recentVoters.map((voter, index) => (
                                                 <li key={`${voter.registration_number}-${index}-${new Date().getTime()}`} className="flex items-center gap-4 bg-slate-700/50 p-3 rounded-lg animate-slide-in-bottom" style={{animationDelay: `${index * 100}ms`}}>
-                                                    <i className="fas fa-check-circle text-emerald-400"></i>
+                                                    <i className="fas fa-check-circle text-slate-300"></i>
                                                     <div className="flex-grow">
                                                         <p className="font-mono text-sm text-white font-semibold">{voter.registration_number}</p>
                                                         <p className="text-xs text-slate-400">{voter.full_name}</p>
@@ -1413,6 +1470,138 @@ const AdminPortal: React.FC = () => {
                     </div>
                 );
             }
+            case 'SECURITY': {
+                const filteredSessions = securityData.sessionTimings
+                    .filter(s => {
+                        if (sessionFilter === 'voted' && !s.has_voted) return false;
+                        if (sessionFilter === 'fast' && (!s.duration || s.duration > 30)) return false; // fast vote defined as <= 30s
+                        return true;
+                    })
+                    .filter(s => 
+                        s.username.toLowerCase().includes(sessionSearch.toLowerCase()) ||
+                        (s.full_name && s.full_name.toLowerCase().includes(sessionSearch.toLowerCase())) ||
+                        (s.registration_number && s.registration_number.toLowerCase().includes(sessionSearch.toLowerCase()))
+                    );
+            
+                return (
+                    <Page title="Security & Anti-Fraud Center">
+                        <div className="space-y-8">
+                            {/* Duplicate Registrations Section */}
+                            <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                                <h3 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3">
+                                    <i className="fas fa-copy text-red-500"></i>Duplicate Registration Numbers
+                                </h3>
+                                <p className="text-slate-500 mb-6">This check identifies if a single registration number has been used to create multiple voter accounts (e.g., one for online and one for physical voting). This is a strong indicator of potential fraud.</p>
+                                
+                                {securityData.duplicateRegistrations.length > 0 ? (
+                                    <div className="space-y-4">
+                                        {securityData.duplicateRegistrations.map(({ registration_number, voters }) => (
+                                            <div key={registration_number} className="p-4 border-2 border-red-200 bg-red-50 rounded-lg">
+                                                <h4 className="font-bold text-red-800 font-mono text-lg">REG #: {registration_number}</h4>
+                                                <p className="text-sm text-red-600 mb-3">This registration number is linked to {voters.length} different voter accounts.</p>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {voters.map(voter => {
+                                                        const isPhysical = /[0-9]/.test(voter.username);
+                                                        return (
+                                                            <div key={voter.id} className="bg-white p-3 rounded shadow-sm border">
+                                                                <p className="font-semibold">{voter.username}</p>
+                                                                <p className="text-sm text-gray-600">{voter.full_name}</p>
+                                                                <div className="flex items-center justify-between mt-2 text-xs">
+                                                                    <span className={`font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-800`}>{isPhysical ? 'Physical' : 'Online'}</span>
+                                                                    <span className={`font-semibold ${voter.has_voted ? 'text-green-600' : 'text-yellow-600'}`}>{voter.has_voted ? 'Voted' : 'Pending'}</span>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-6 bg-green-50 border border-green-200 rounded-lg">
+                                        <i className="fas fa-check-circle text-green-500 text-3xl mb-2"></i>
+                                        <p className="font-semibold text-green-800">No duplicate registrations found.</p>
+                                    </div>
+                                )}
+                            </div>
+            
+                            {/* Session Analysis Section */}
+                            <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                                <h3 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3">
+                                    <i className="fas fa-hourglass-half text-slate-500"></i>Voter Session Analysis
+                                </h3>
+                                <p className="text-slate-500 mb-6">Review the time between a voter's registration and when they cast their vote. Extremely short durations can indicate automated or suspicious activity.</p>
+                                
+                                {/* Controls for the table */}
+                                <div className="mb-4 p-4 bg-slate-50 rounded-lg border space-y-4">
+                                   <div className="relative">
+                                       <input
+                                           type="text"
+                                           placeholder="Search by name, username, reg number..."
+                                           value={sessionSearch}
+                                           onChange={e => setSessionSearch(e.target.value)}
+                                           className="w-full p-3 pl-10 border rounded-lg"
+                                       />
+                                       <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                   </div>
+                                   <div className="flex items-center justify-center space-x-1 sm:space-x-2 bg-gray-200 rounded-lg p-1">
+                                       <button onClick={() => setSessionFilter('all')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${sessionFilter === 'all' ? 'bg-white shadow' : 'text-gray-600'}`}>All Sessions</button>
+                                       <button onClick={() => setSessionFilter('voted')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${sessionFilter === 'voted' ? 'bg-white shadow' : 'text-gray-600'}`}>Voted Only</button>
+                                       <button onClick={() => setSessionFilter('fast')} className={`px-2 sm:px-4 py-1 text-sm font-semibold rounded-md flex-1 transition ${sessionFilter === 'fast' ? 'bg-white shadow' : 'text-gray-600'}`}>Fast Votes (&lt;30s)</button>
+                                   </div>
+                                </div>
+            
+                                <div className="overflow-x-auto max-h-[40rem] overflow-y-auto">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50 sticky top-0">
+                                            <tr>
+                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Voter</th>
+                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Registration Time</th>
+                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vote Time</th>
+                                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {filteredSessions.length > 0 ? filteredSessions.map(voter => {
+                                                const isPhysical = /[0-9]/.test(voter.username);
+                                                const isFastVote = voter.duration !== undefined && voter.duration <= 30;
+                                                return (
+                                                    <tr key={voter.id} className={`${isFastVote ? 'bg-red-50' : ''}`}>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <div className="text-sm font-medium text-gray-900">{voter.full_name || voter.username}</div>
+                                                            <div className="text-sm text-gray-500">{voter.registration_number || voter.username}</div>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800`}>
+                                                                {isPhysical ? 'Physical' : 'Online'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(voter.created_at).toLocaleString()}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{voter.vote_time ? new Date(voter.vote_time).toLocaleString() : <span className="text-gray-400 italic">Not Voted</span>}</td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                            {voter.duration !== undefined ? 
+                                                                <span className={isFastVote ? 'text-red-600 font-bold' : 'text-gray-900'}>
+                                                                    {voter.duration}s
+                                                                </span> : 
+                                                                <span className="text-gray-400">-</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }) : (
+                                                <tr>
+                                                    <td colSpan={5} className="px-6 py-10 text-center text-gray-500">No sessions match your criteria.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </Page>
+                );
+            }
             default: return <div>Select a view</div>;
         }
     };
@@ -1428,7 +1617,7 @@ const AdminPortal: React.FC = () => {
                             placeholder="Username"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                            className="w-full p-4 text-gray-700 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500 transition"
                         />
                         <PasswordField
                             id="director-password"
@@ -1437,7 +1626,7 @@ const AdminPortal: React.FC = () => {
                             onChange={(e) => setPassword(e.target.value)}
                         />
                          {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
-                        <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-4 px-4 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-blue-300 flex items-center justify-center">
+                        <button type="submit" disabled={loading} className="w-full bg-slate-800 text-white font-bold py-4 px-4 rounded-xl hover:bg-slate-900 transition-colors disabled:bg-slate-400 flex items-center justify-center">
                            {loading ? <i className="fas fa-spinner fa-spin mr-2"></i> : null}
                            {loading ? 'Logging in...' : 'Login'}
                         </button>
@@ -1450,7 +1639,7 @@ const AdminPortal: React.FC = () => {
     const NavLink: React.FC<{ icon: string; label: AdminView; currentView: AdminView; setView: (view: AdminView) => void; }> = ({ icon, label, currentView, setView }) => (
         <li>
             <a href="#" onClick={(e) => { e.preventDefault(); setView(label); setSidebarOpen(false); setFormMessage(null); }}
-               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
+               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-slate-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
                 <i className={`fas ${icon} w-6 text-center`}></i>
                 <span>{label.charAt(0) + label.slice(1).toLowerCase()}</span>
             </a>
@@ -1467,8 +1656,8 @@ const AdminPortal: React.FC = () => {
                     border-color: #334155; /* slate-700 */
                 }
                 50% {
-                    background-color: #10b981; /* emerald-500 */
-                    border-color: #34d399; /* emerald-400 */
+                    background-color: #1e293b; /* slate-800 */
+                    border-color: #475569; /* slate-600 */
 
                 }
             }
@@ -1509,10 +1698,10 @@ const AdminPortal: React.FC = () => {
             }
             @keyframes glow {
                 0%, 100% {
-                    box-shadow: 0 0 5px rgba(59, 130, 246, 0), 0 0 5px rgba(59, 130, 246, 0);
+                    box-shadow: 0 0 5px rgba(255, 255, 255, 0), 0 0 5px rgba(255, 255, 255, 0);
                 }
                 50% {
-                    box-shadow: 0 0 20px rgba(59, 130, 246, 0.6), 0 0 30px rgba(59, 130, 246, 0.4);
+                    box-shadow: 0 0 20px rgba(255, 255, 255, 0.6), 0 0 30px rgba(255, 255, 255, 0.4);
                 }
             }
             .animate-glow {
@@ -1543,7 +1732,7 @@ const AdminPortal: React.FC = () => {
                 </div>
             )}
             {newVoteToast && (
-                <div className="fixed bottom-4 right-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-xl animate-fade-in-out">
+                <div className="fixed bottom-4 right-4 z-50 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-xl animate-fade-in-out">
                     <i className="fas fa-vote-yea mr-2"></i> {newVoteToast}
                 </div>
             )}
@@ -1578,6 +1767,7 @@ const AdminPortal: React.FC = () => {
                             <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} setView={setView} />
                             <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} setView={setView} />
                             <NavLink icon="fa-chart-pie" label="STATISTICS" currentView={view} setView={setView} />
+                            <NavLink icon="fa-shield-alt" label="SECURITY" currentView={view} setView={setView} />
                         </ul>
                     </nav>
                 </aside>
