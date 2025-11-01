@@ -354,7 +354,7 @@ const VoterRegistration: React.FC = () => {
                         {step === 'verify' && (
                             <form onSubmit={handleVerify} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
-                                <FormInput id="fullName" name="fullName" label="Full Name (as on record)" value={formData.fullName} onChange={handleChange} />
+                                <FormInput id="fullName" name="fullName" label="Full Name (as in sims)" value={formData.fullName} onChange={handleChange} />
                                 <button type="submit" disabled={loading || ipLoading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all duration-300 disabled:bg-gray-400 flex items-center justify-center">
                                     {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
                                 </button>
