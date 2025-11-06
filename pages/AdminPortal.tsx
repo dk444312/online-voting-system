@@ -5,6 +5,12 @@ import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
 type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS' | 'SECURITY';
 
+// Local types
+interface Position {
+    id: number;
+    name: string;
+}
+
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
     const [show, setShow] = useState(false);
@@ -301,6 +307,7 @@ const AdminPortal: React.FC = () => {
     const [electionStatus, setElectionStatus] = useState<'Preparing' | 'Active' | 'Ended'>('Preparing');
     const [isRegistrationActive, setIsRegistrationActive] = useState(true);
     const [candidates, setCandidates] = useState<Candidate[]>([]);
+    const [positions, setPositions] = useState<Position[]>([]);
     const [voters, setVoters] = useState<Voter[]>([]);
     const [registrations, setRegistrations] = useState<Registration[]>([]);
     const [admins, setAdmins] = useState<Admin[]>([]);
@@ -310,6 +317,8 @@ const AdminPortal: React.FC = () => {
     const [candidateName, setCandidateName] = useState('');
     const [candidatePosition, setCandidatePosition] = useState('');
     const [candidatePhoto, setCandidatePhoto] = useState<File | null>(null);
+    const [newPositionName, setNewPositionName] = useState('');
+    const [bulkCandidateData, setBulkCandidateData] = useState('');
     const [newAdminUsername, setNewAdminUsername] = useState('');
     const [newAdminPassword, setNewAdminPassword] = useState('');
     const [deadlineInput, setDeadlineInput] = useState('');
@@ -408,6 +417,11 @@ const AdminPortal: React.FC = () => {
     const fetchCandidates = useCallback(async () => {
         const { data } = await supabase.from('candidates').select('*').order('created_at');
         setCandidates(data || []);
+    }, []);
+
+    const fetchPositions = useCallback(async () => {
+        const { data } = await supabase.from('positions').select('*').order('name');
+        setPositions(data || []);
     }, []);
 
    const fetchVoters = useCallback(async () => {
@@ -681,8 +695,8 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const loadAllData = useCallback(async () => {
-        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters(), fetchSecurityData()]);
-    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters, fetchSecurityData]);
+        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchPositions(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters(), fetchSecurityData()]);
+    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchPositions, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters, fetchSecurityData]);
 
     useEffect(() => {
         if (currentUser) {
@@ -848,6 +862,7 @@ const AdminPortal: React.FC = () => {
                 await supabase.from('votes').delete().neq('id', '0');
                 await supabase.from('physical_votes').delete().neq('id', '0');
                 await supabase.from('candidates').delete().neq('id', '0');
+                await supabase.from('positions').delete().neq('id', '0');
                 await supabase.from('voters').delete().neq('id', '0');
                 await supabase.from('settings').delete().eq('key', 'voting_deadline');
                 await supabase.from('settings').delete().eq('key', 'registration_deadline');
@@ -855,6 +870,50 @@ const AdminPortal: React.FC = () => {
                 loadAllData();
             } catch (error: any) {
                 alert(`Error: ${error.message}`);
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+    
+    const handleAddPosition = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newPositionName.trim()) {
+            setFormMessage({ type: 'error', text: 'Position name cannot be empty.' });
+            return;
+        }
+        setLoading(true);
+        setFormMessage(null);
+        try {
+            const { error } = await supabase.from('positions').insert({ name: newPositionName.trim() });
+            if (error) throw error;
+            setFormMessage({ type: 'success', text: `Position "${newPositionName}" added.` });
+            setNewPositionName('');
+            fetchPositions();
+        } catch (error: any) {
+            if (error.code === '23505') {
+                setFormMessage({ type: 'error', text: 'This position already exists.' });
+            } else {
+                setFormMessage({ type: 'error', text: error.message });
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeletePosition = async (positionId: number, positionName: string) => {
+        if (window.confirm(`Are you sure you want to delete the position "${positionName}"? This will also delete all candidates running for this position.`)) {
+            setLoading(true);
+            setFormMessage(null);
+            try {
+                // We must delete candidates first due to foreign key constraints
+                await supabase.from('candidates').delete().eq('position', positionName);
+                await supabase.from('positions').delete().eq('id', positionId);
+                setFormMessage({ type: 'success', text: `Position "${positionName}" and its candidates deleted.` });
+                fetchPositions();
+                fetchCandidates();
+            } catch (error: any) {
+                setFormMessage({ type: 'error', text: error.message });
             } finally {
                 setLoading(false);
             }
@@ -876,7 +935,10 @@ const AdminPortal: React.FC = () => {
 
             const { data: { publicUrl } } = supabase.storage.from('candidate_photos').getPublicUrl(fileName);
             
-            const { error: insertError } = await supabase.from('candidates').insert([{ name: candidateName, position: candidatePosition, photo_url: publicUrl }]);
+            const positionName = positions.find(p => p.id === parseInt(candidatePosition))?.name;
+            if (!positionName) throw new Error("Selected position not found.");
+            
+            const { error: insertError } = await supabase.from('candidates').insert([{ name: candidateName, position: positionName, photo_url: publicUrl }]);
             if(insertError) throw insertError;
 
             setFormMessage({type: 'success', text: 'Candidate added.'});
@@ -888,6 +950,46 @@ const AdminPortal: React.FC = () => {
             fetchDashboardStats();
         } catch (error: any) {
             setFormMessage({type: 'error', text: error.message});
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleBulkAddCandidates = async () => {
+        if (!bulkCandidateData.trim()) {
+            setFormMessage({ type: 'error', text: 'Bulk data field is empty.' });
+            return;
+        }
+        setLoading(true);
+        setFormMessage(null);
+        try {
+            const lines = bulkCandidateData.trim().split(/\r?\n/);
+            const positionNameMap = new Map(positions.map(p => [p.name.toLowerCase(), p.name]));
+            
+            const newCandidates = lines.map(line => {
+                const parts = line.split(',');
+                if (parts.length < 2) return null;
+                const name = parts[0].trim();
+                const positionInput = parts.slice(1).join(',').trim();
+                const positionName = positionNameMap.get(positionInput.toLowerCase());
+
+                if (!name || !positionName) return null;
+                return { name, position: positionName, photo_url: 'https://via.placeholder.com/150' }; // Using a placeholder photo
+            }).filter((item): item is { name: string; position: string; photo_url: string; } => item !== null);
+            
+            if (newCandidates.length === 0) {
+                throw new Error("No valid data found. Ensure format is: CANDIDATE_NAME,POSITION_NAME and that the position exists.");
+            }
+
+            const { error } = await supabase.from('candidates').insert(newCandidates);
+            if (error) throw error;
+            
+            setFormMessage({ type: 'success', text: `${newCandidates.length} candidates added successfully.` });
+            setBulkCandidateData('');
+            fetchCandidates();
+            fetchDashboardStats();
+        } catch (error: any) {
+            setFormMessage({ type: 'error', text: `Error: ${error.message}` });
         } finally {
             setLoading(false);
         }
@@ -1195,32 +1297,98 @@ const AdminPortal: React.FC = () => {
                 </Page>
             );
             case 'CANDIDATES': return (
-                <Page title="Manage Candidates">
-                    <form onSubmit={handleAddCandidate} className="max-w-md mx-auto mb-8 p-6 bg-gray-50 rounded-lg border">
-                        <h3 className="text-xl font-semibold mb-4 text-center">Add Candidate</h3>
-                        <div className="space-y-4">
-                            <input type="text" placeholder="Candidate Name" value={candidateName} onChange={e => setCandidateName(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <input type="text" placeholder="Position" value={candidatePosition} onChange={e => setCandidatePosition(e.target.value)} className="w-full p-3 border rounded-lg" />
-                            <input id="candidate-photo" type="file" accept="image/*" onChange={e => setCandidatePhoto(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
-                            <button type="submit" disabled={loading} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">Add Candidate</button>
-                        </div>
-                        {formMessage && <div className={`p-3 rounded-lg text-center mt-4 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
-                    </form>
-                    <h3 className="text-xl font-semibold mb-4 text-center">Candidates List</h3>
-                    <div className="space-y-4 max-h-96 overflow-y-auto p-2">
-                        {candidates.length === 0 ? <p className="text-center text-gray-500">No candidates added yet.</p> :
-                            candidates.map((c, index) => (
-                                <div key={c.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
-                                    <span className="font-mono text-gray-500 w-8 text-center text-lg">{index + 1}.</span>
-                                    <img src={c.photo_url} alt={c.name} className="w-16 h-16 rounded-full object-cover"/>
-                                    <div className="flex-grow">
-                                        <p className="font-bold text-lg">{c.name}</p>
-                                        <p className="text-gray-600">{c.position}</p>
-                                    </div>
-                                    <button onClick={() => handleDeleteCandidate(c.id)} className="text-red-500 hover:text-red-700 text-xl"><i className="fas fa-trash"></i></button>
+                <Page title="Manage Candidates & Positions">
+                    {formMessage && <div className={`p-3 rounded-lg text-center mb-6 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                        
+                        {/* Left Column: Forms */}
+                        <div className="xl:col-span-1 space-y-8">
+                            <div className="p-6 bg-gray-50 rounded-xl border">
+                                <h3 className="text-xl font-semibold mb-4">Manage Positions</h3>
+                                <form onSubmit={handleAddPosition} className="flex gap-2 mb-4">
+                                    <input type="text" placeholder="New Position Name" value={newPositionName} onChange={e => setNewPositionName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                    <button type="submit" disabled={loading} className="bg-slate-700 text-white font-bold py-2 px-4 rounded-lg hover:bg-slate-800 transition disabled:bg-slate-400 flex-shrink-0">Add</button>
+                                </form>
+                                <div className="flex flex-wrap gap-2">
+                                    {positions.map(p => {
+                                        const candidateCount = candidates.filter(c => c.position === p.name).length;
+                                        return (
+                                            <div key={p.id} className="flex items-center bg-white py-1 pl-3 pr-1 rounded-full border text-sm font-medium text-gray-700">
+                                                <span>{p.name} ({candidateCount})</span>
+                                                <button onClick={() => handleDeletePosition(p.id, p.name)} className="ml-2 text-gray-400 hover:text-red-500 w-6 h-6 rounded-full hover:bg-red-100 flex items-center justify-center">
+                                                    <i className="fas fa-times text-xs"></i>
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                     {positions.length === 0 && <p className="text-sm text-gray-500">No positions created yet.</p>}
                                 </div>
-                            ))
-                        }
+                            </div>
+
+                            <form onSubmit={handleAddCandidate} className="p-6 bg-gray-50 rounded-xl border">
+                                <h3 className="text-xl font-semibold mb-4">Add Single Candidate</h3>
+                                <div className="space-y-4">
+                                    <input type="text" placeholder="Candidate Name" value={candidateName} onChange={e => setCandidateName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                    <select value={candidatePosition} onChange={e => setCandidatePosition(e.target.value)} className="w-full p-3 border rounded-lg bg-white">
+                                        <option value="" disabled>Select a Position</option>
+                                        {positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                    <input id="candidate-photo" type="file" accept="image/*" onChange={e => setCandidatePhoto(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+                                    <button type="submit" disabled={loading || positions.length === 0} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">Add Candidate</button>
+                                </div>
+                            </form>
+
+                            <div className="p-6 bg-gray-50 rounded-xl border">
+                                <h3 className="text-xl font-semibold mb-2">Add Candidates in Bulk</h3>
+                                <p className="text-sm text-gray-500 mb-4">Format: <code className="bg-gray-200 px-1 rounded">CANDIDATE_NAME,POSITION_NAME</code>. One per line. Position must already exist.</p>
+                                <textarea
+                                    placeholder="John Doe,President&#x0a;Jane Smith,Vice President"
+                                    value={bulkCandidateData}
+                                    onChange={e => setBulkCandidateData(e.target.value)}
+                                    className="w-full p-3 border rounded-lg h-28 font-mono text-sm"
+                                    disabled={loading}
+                                />
+                                <button onClick={handleBulkAddCandidates} disabled={loading} className="mt-2 w-full bg-slate-600 text-white font-bold py-3 rounded-lg hover:bg-slate-700 transition disabled:bg-slate-300">Import Candidates</button>
+                            </div>
+                        </div>
+
+                        {/* Right Column: Candidates List */}
+                        <div className="xl:col-span-2">
+                             <h3 className="text-2xl font-bold text-slate-800 mb-4">Candidate Roster</h3>
+                             <div className="space-y-6 max-h-[42rem] overflow-y-auto p-1">
+                                {positions.length === 0 ? <p className="text-center text-gray-500 py-10">Add a position to start adding candidates.</p> :
+                                    positions.map(position => {
+                                        const candidatesForPosition = candidates.filter(c => c.position === position.name);
+                                        return (
+                                             <div key={position.id} className="bg-white p-4 rounded-xl border shadow-sm">
+                                                <h4 className="font-bold text-xl text-slate-700 border-b-2 border-slate-200 pb-2 mb-4 flex justify-between items-center">
+                                                    <span>{position.name}</span>
+                                                    <span className="text-base font-normal bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">{candidatesForPosition.length} Candidates</span>
+                                                </h4>
+                                                {candidatesForPosition.length > 0 ? (
+                                                    <ul className="space-y-3">
+                                                        {candidatesForPosition.map((c) => (
+                                                            <li key={c.id} className="flex items-center gap-4 p-2 pr-4 bg-slate-50 border rounded-lg transition-shadow hover:shadow-md">
+                                                                <img src={c.photo_url} alt={c.name} className="w-16 h-16 rounded-lg object-cover"/>
+                                                                <div className="flex-grow">
+                                                                     <p className="font-bold text-lg text-slate-800">{c.name}</p>
+                                                                     <p className="text-sm text-slate-500">{c.position}</p>
+                                                                </div>
+                                                                <button onClick={() => handleDeleteCandidate(c.id)} className="text-gray-400 hover:text-red-600 text-lg w-10 h-10 rounded-full hover:bg-red-100 flex items-center justify-center transition-colors">
+                                                                    <i className="fas fa-trash-alt"></i>
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                ) : (
+                                                    <p className="text-sm text-gray-500 text-center py-4">No candidates for this position yet.</p>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                 }
+                             </div>
+                        </div>
                     </div>
                 </Page>
             );
