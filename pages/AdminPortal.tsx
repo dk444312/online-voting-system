@@ -410,11 +410,27 @@ const AdminPortal: React.FC = () => {
         setCandidates(data || []);
     }, []);
 
-    const fetchVoters = useCallback(async () => {
-        const { data } = await supabase.from('voters').select('*').order('created_at');
-        setVoters(data || []);
-    }, []);
+   const fetchVoters = useCallback(async () => {
+    let allVoters: Voter[] = [];
+    const BATCH_SIZE = 1000;
+    let start = 0;
 
+    while (true) {
+        const { data, error } = await supabase
+            .from('voters')
+            .select('*')
+            .range(start, start + BATCH_SIZE - 1)
+            .order('created_at', { ascending: false });
+
+        if (error || !data || data.length === 0) break;
+
+        allVoters.push(...data);
+        start += BATCH_SIZE;
+    }
+
+    console.log('Total voters loaded:', allVoters.length); // Should show real number
+    setVoters(allVoters);
+}, []);
     const fetchRegistrations = useCallback(async () => {
     let allRegistrations: Registration[] = [];
     const BATCH_SIZE = 1000;
@@ -450,41 +466,91 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const getFinalVoteCounts = useCallback(async () => {
-        const { data: candidatesData } = await supabase.from('candidates').select('*');
-        if (!candidatesData) return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
+    // --- 1. Load ALL candidates (batch) ---
+    let allCandidates: Candidate[] = [];
+    let start = 0;
+    const BATCH_SIZE = 1000;
 
-        const candidateIdMap = new Map<string, string>(candidatesData.map(c => [`${c.position}_${c.name}`, c.id]));
-        const voteCounts = new Map<string, number>(candidatesData.map(c => [c.id, 0]));
+    while (true) {
+        const { data, error } = await supabase
+            .from('candidates')
+            .select('*')
+            .range(start, start + BATCH_SIZE - 1);
 
-        const { data: onlineVotes } = await supabase.from('votes').select('candidate_id');
-        onlineVotes?.forEach(vote => {
+        if (error || !data || data.length === 0) break;
+        allCandidates.push(...data);
+        start += BATCH_SIZE;
+    }
+
+    if (allCandidates.length === 0) {
+        return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
+    }
+
+    // --- 2. Build candidate ID map: (position_name → id) ---
+    const candidateIdMap = new Map<string, string>();
+    allCandidates.forEach(c => {
+        const key = `${c.position}_${c.name}`;
+        candidateIdMap.set(key, c.id);
+    });
+
+    // --- 3. Load ALL online votes (batch) ---
+    const voteCounts = new Map<string, number>(
+        allCandidates.map(c => [c.id, 0])
+    );
+
+    start = 0;
+    while (true) {
+        const { data, error } = await supabase
+            .from('votes')
+            .select('candidate_id')
+            .range(start, start + BATCH_SIZE - 1);
+
+        if (error || !data || data.length === 0) break;
+
+        data.forEach(vote => {
             if (vote.candidate_id) {
-                const candidateId = vote.candidate_id as string;
-                voteCounts.set(candidateId, (voteCounts.get(candidateId) || 0) + 1);
+                const id = vote.candidate_id as string;
+                voteCounts.set(id, (voteCounts.get(id) || 0) + 1);
             }
         });
+        start += BATCH_SIZE;
+    }
 
-        const { data: physicalVotes } = await supabase.from('physical_votes').select('votes');
-        physicalVotes?.forEach(pVote => {
-            if (pVote.votes) {
-                try {
-                    const voteData: any = (typeof pVote.votes === 'string') ? JSON.parse(pVote.votes) : pVote.votes;
-                    for (const position in voteData) {
-                        const candidateName = voteData[position];
-                        const key = `${position}_${candidateName}`;
-                        const candidateId = candidateIdMap.get(key);
-                        if (candidateId) {
-                            voteCounts.set(candidateId, (voteCounts.get(candidateId) || 0) + 1);
-                        }
+    // --- 4. Load ALL physical votes (usually small, but safe) ---
+    const { data: physicalVotes } = await supabase
+        .from('physical_votes')
+        .select('votes');
+
+    physicalVotes?.forEach(pVote => {
+        if (pVote.votes) {
+            try {
+                const voteData: any = typeof pVote.votes === 'string'
+                    ? JSON.parse(pVote.votes)
+                    : pVote.votes;
+
+                for (const position in voteData) {
+                    const candidateName = voteData[position];
+                    const key = `${position}_${candidateName}`;
+                    const candidateId = candidateIdMap.get(key);
+                    if (candidateId) {
+                        voteCounts.set(candidateId, (voteCounts.get(candidateId) || 0) + 1);
                     }
-                } catch (e) { console.error('Error parsing physical vote data:', e); }
+                }
+            } catch (e) {
+                console.error('Error parsing physical vote:', e);
             }
-        });
+        }
+    });
 
-        const totalVotes = Array.from(voteCounts.values()).reduce((sum, count) => sum + count, 0);
-        return { candidates: candidatesData, voteCounts, totalVotes };
-    }, []);
+    // --- 5. Calculate total votes ---
+    const totalVotes = Array.from(voteCounts.values()).reduce((sum, count) => sum + count, 0);
 
+    return {
+        candidates: allCandidates,
+        voteCounts,
+        totalVotes,
+    };
+}, []);
 
     const fetchResults = useCallback(async () => {
         const { candidates, voteCounts } = await getFinalVoteCounts();
@@ -533,43 +599,38 @@ const AdminPortal: React.FC = () => {
     }, [getFinalVoteCounts]);
     
     const fetchRecentVoters = useCallback(async () => {
-        const { data: votesData, error: votesError } = await supabase
-            .from('votes')
-            .select('voter_id, created_at')
-            .order('created_at', { ascending: false })
-            .limit(7);
+    const { data: votesData } = await supabase
+        .from('votes')
+        .select('voter_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(7); // still only 7
 
-        if (votesError || !votesData) {
-            console.error('Error fetching recent votes:', votesError);
-            return;
-        }
+    if (!votesData?.length) {
+        setRecentVoters([]);
+        return;
+    }
 
-        if (votesData.length === 0) {
-            setRecentVoters([]);
-            return;
-        }
-
-        const voterIds = votesData.map((v: any) => v.voter_id);
-
-        const { data: votersData, error: votersError } = await supabase
+    const voterIds = votesData.map(v => v.voter_id);
+    let allVoters: any[] = [];
+    let start = 0;
+    const BATCH = 1000;
+    while (true) {
+        const { data, error } = await supabase
             .from('voters')
             .select('id, registration_number, full_name')
-            .in('id', voterIds);
+            .in('id', voterIds)
+            .range(start, start + BATCH - 1);
+        if (error || !data || data.length === 0) break;
+        allVoters.push(...data);
+        start += BATCH;
+    }
 
-        if (votersError || !votersData) {
-            console.error('Error fetching recent voter details:', votersError);
-            return;
-        }
-
-        const voterMap = new Map(votersData.map((v: any) => [v.id, { registration_number: v.registration_number, full_name: v.full_name }]));
-        
-        const sortedRecentVoters = votesData
-            .map((vote: any) => voterMap.get(vote.voter_id))
-            .filter(v => v) as { registration_number: string; full_name: string; }[];
-            
-        setRecentVoters(sortedRecentVoters);
-    }, []);
-
+    const voterMap = new Map(allVoters.map(v => [v.id, v]));
+    const sorted = votesData
+        .map(v => voterMap.get(v.voter_id))
+        .filter(Boolean) as any[];
+    setRecentVoters(sorted);
+}, []);
     const fetchSecurityData = useCallback(async () => {
         // 1. Fetch all voters and online votes
         const { data: votersData, error: votersError } = await supabase.from('voters').select('*').order('created_at');
