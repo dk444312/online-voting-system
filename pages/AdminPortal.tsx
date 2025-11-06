@@ -416,10 +416,22 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const fetchRegistrations = useCallback(async () => {
-        const { data } = await supabase.from('registrations').select('*').order('created_at', { ascending: false });
-        setRegistrations(data || []);
-    }, []);
+    // Fetch up to 10 000 rows in one call (covers your 1500+ entries)
+    const { data, error } = await supabase
+        .from('registrations')
+        .select('*')
+        .range(0, 9999)                     // 0-based, inclusive → 10 000 rows
+        .order('created_at', { ascending: false });
 
+    if (error) {
+        console.error('Error loading registrations:', error);
+        setRegistrations([]);
+        return;
+    }
+
+    console.log('Registrations loaded:', data?.length); // should log 1500+
+    setRegistrations(data || []);
+}, []);
     const fetchAdmins = useCallback(async () => {
         const { data } = await supabase.from('directors').select('*').order('created_at');
         setAdmins(data || []);
