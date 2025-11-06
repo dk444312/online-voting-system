@@ -416,21 +416,33 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const fetchRegistrations = useCallback(async () => {
-    // Fetch up to 10 000 rows in one call (covers your 1500+ entries)
-    const { data, error } = await supabase
-        .from('registrations')
-        .select('*')
-        .range(0, 9999)                     // 0-based, inclusive → 10 000 rows
-        .order('created_at', { ascending: false });
+    let allRegistrations: Registration[] = [];
+    const BATCH_SIZE = 1000;
+    let start = 0;
 
-    if (error) {
-        console.error('Error loading registrations:', error);
-        setRegistrations([]);
-        return;
+    while (true) {
+        const { data, error, count } = await supabase
+            .from('registrations')
+            .select('*', { count: 'exact', head: false })
+            .range(start, start + BATCH_SIZE - 1)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching registrations:', error);
+            break;
+        }
+
+        if (!data || data.length === 0) break;
+
+        allRegistrations = allRegistrations.concat(data);
+        start += BATCH_SIZE;
+
+        // Optional: stop early if we know total
+        if (count && allRegistrations.length >= count) break;
     }
 
-    console.log('Registrations loaded:', data?.length); // should log 1500+
-    setRegistrations(data || []);
+    console.log('Total registrations loaded:', allRegistrations.length); // Should be 6139+
+    setRegistrations(allRegistrations);
 }, []);
     const fetchAdmins = useCallback(async () => {
         const { data } = await supabase.from('directors').select('*').order('created_at');
