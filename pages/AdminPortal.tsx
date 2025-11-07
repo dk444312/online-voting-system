@@ -3,6 +3,8 @@ import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, Cart
 import { supabase } from '../services/supabaseClient';
 import type { Director, Candidate, Voter, Admin, Registration } from '../types';
 
+const DEFAULT_CANDIDATE_PHOTO_URL = `data:image/svg+xml;charset=UTF-8,%3csvg width='150' height='150' viewBox='0 0 150 150' fill='none' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='150' height='150' rx='12' fill='%23F1F5F9'/%3e%3cpath d='M75 92.5C85.2269 92.5 93.5 84.2269 93.5 74C93.5 63.7731 85.2269 55.5 75 55.5C64.7731 55.5 56.5 63.7731 56.5 74C56.5 84.2269 64.7731 92.5 75 92.5Z' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3cpath d='M66.625 99.6875L62.5 125L75 112.5L87.5 125L83.375 99.625' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e`;
+
 type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS' | 'SECURITY';
 
 // Local types
@@ -922,23 +924,30 @@ const AdminPortal: React.FC = () => {
     
     const handleAddCandidate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!candidateName || !candidatePosition || !candidatePhoto) {
-            setFormMessage({type: 'error', text: 'All fields are required.'});
+        if (!candidateName || !candidatePosition) {
+            setFormMessage({type: 'error', text: 'Candidate Name and Position are required.'});
             return;
         }
         setLoading(true);
         setFormMessage(null);
         try {
-            const fileName = `${Date.now()}_${candidatePhoto.name}`;
-            const { error: uploadError } = await supabase.storage.from('candidate_photos').upload(fileName, candidatePhoto);
-            if(uploadError) throw uploadError;
+            let photoUrl = DEFAULT_CANDIDATE_PHOTO_URL;
 
-            const { data: { publicUrl } } = supabase.storage.from('candidate_photos').getPublicUrl(fileName);
+            if (candidatePhoto) {
+                const fileName = `${Date.now()}_${candidatePhoto.name}`;
+                const { error: uploadError } = await supabase.storage.from('candidate_photos').upload(fileName, candidatePhoto);
+                if(uploadError) throw uploadError;
+
+                const { data: { publicUrl } } = supabase.storage.from('candidate_photos').getPublicUrl(fileName);
+                if (publicUrl) {
+                    photoUrl = publicUrl;
+                }
+            }
             
             const positionName = positions.find(p => p.id === parseInt(candidatePosition))?.name;
             if (!positionName) throw new Error("Selected position not found.");
             
-            const { error: insertError } = await supabase.from('candidates').insert([{ name: candidateName, position: positionName, photo_url: publicUrl }]);
+            const { error: insertError } = await supabase.from('candidates').insert([{ name: candidateName, position: positionName, photo_url: photoUrl }]);
             if(insertError) throw insertError;
 
             setFormMessage({type: 'success', text: 'Candidate added.'});
@@ -974,7 +983,7 @@ const AdminPortal: React.FC = () => {
                 const positionName = positionNameMap.get(positionInput.toLowerCase());
 
                 if (!name || !positionName) return null;
-                return { name, position: positionName, photo_url: 'https://via.placeholder.com/150' }; // Using a placeholder photo
+                return { name, position: positionName, photo_url: DEFAULT_CANDIDATE_PHOTO_URL };
             }).filter((item): item is { name: string; position: string; photo_url: string; } => item !== null);
             
             if (newCandidates.length === 0) {
