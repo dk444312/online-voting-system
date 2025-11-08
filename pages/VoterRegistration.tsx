@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 
+// --- Configuration Constant ---
+const IP_REGISTRATION_LIMIT = 3; 
+
 // --- Type Definitions ---
 
 interface FormData {
@@ -202,7 +205,7 @@ const VoterRegistration: React.FC = () => {
 
         try {
             // Check 1: Already voted digitally (from voters table)
-            const { data: voterData, error: voterError } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).single();
+            const { data: voterData, error: voterError } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
             if (voterError && voterError.code !== 'PGRST116') throw voterError;
             if (voterData) {
                 if (voterData.has_voted) throw new Error("This registration number has already been used to cast a digital vote.");
@@ -210,13 +213,23 @@ const VoterRegistration: React.FC = () => {
             }
 
             // Check 2: Master list validation
-            const { data: regData, error: regError } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).single();
-            if (regError || !regData) throw new Error("Invalid registration number or full name. Please check your official details.");
+            const { data: regData, error: regError } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
+            if (regError && regError.code !== 'PGRST116') throw regError;
+            if (!regData) throw new Error("Invalid registration number or full name. Please check your official details.");
 
-            // Check 3: IP duplication
-            const { data: ipData, error: ipError } = await supabase.from('voters').select('id').eq('registration_ip', clientIP).maybeSingle();
+
+            // 🔑 Check 3: IP duplication - MODIFIED TO CHECK COUNT 🔑
+            const { count: ipCount, error: ipError } = await supabase
+                .from('voters')
+                .select('id', { count: 'exact' })
+                .eq('registration_ip', clientIP);
+
             if (ipError) throw ipError;
-            if (ipData) throw new Error(`An account has already been registered from this network. Please contact support.`);
+
+            if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
+                throw new Error(`The maximum registration limit (${IP_REGISTRATION_LIMIT} users) for this network has been reached. Please contact support.`);
+            }
+            // ----------------------------------------------------
 
             setStep('create');
         } catch (error: any) {
@@ -238,8 +251,23 @@ const VoterRegistration: React.FC = () => {
         const { registrationNumber, fullName, username, password } = formData;
 
         try {
+            // Check 1: Username availability
             const { data: existingUser } = await supabase.from('voters').select('id').eq('username', username.trim()).maybeSingle();
             if (existingUser) throw new Error('This username is already taken. Please choose another.');
+
+            // 🔑 Check 2: Re-check IP duplication just before insertion 🔑
+            const { count: ipCount, error: ipError } = await supabase
+                .from('voters')
+                .select('id', { count: 'exact' })
+                .eq('registration_ip', clientIP);
+            
+            if (ipError) throw ipError;
+
+            if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
+                throw new Error(`Registration failed: The maximum limit (${IP_REGISTRATION_LIMIT}) for this network has been reached.`);
+            }
+            // ----------------------------------------------------
+
 
             const { error: insertError } = await supabase.from('voters').insert([{
                 registration_number: registrationNumber.trim(),
@@ -331,6 +359,7 @@ const VoterRegistration: React.FC = () => {
                 <div className="text-center mb-6">
                     <h1 className="text-3xl font-bold text-gray-900">Voter Registration</h1>
                     <p className="text-gray-500 mt-1">{deadlineMessage}</p>
+                    {clientIP && <p className="text-xs text-gray-400 mt-1">Your IP: {clientIP}</p>}
                 </div>
 
                 {!isRegistrationOpen ? (
