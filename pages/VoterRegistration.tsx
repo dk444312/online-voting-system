@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 
 // --- Configuration Constant ---
-const IP_REGISTRATION_LIMIT = 3; 
+const IP_REGISTRATION_LIMIT = 2; 
 
 // --- Type Definitions ---
 
