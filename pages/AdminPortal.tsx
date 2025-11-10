@@ -75,7 +75,7 @@ const VoterTurnoutChart: React.FC<TurnoutChartProps> = ({ voted, total }) => {
         </Pie>
         <Tooltip formatter={(value: number) => `${value} voters`} contentStyle={{ backgroundColor: 'rgb(30 41 59 / 0.9)', borderColor: '#475569', color: '#e2e8f0', borderRadius: '0.75rem' }}/>
         <Legend iconType="circle" wrapperStyle={{color: '#e2e8f0'}}/>
-        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-3xl font-bold fill-white">
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="text-3xl font-bold fill-slate-800">
           {total > 0 ? `${((voted / total) * 100).toFixed(1)}%` : '0%'}
         </text>
         <text x="50%" y="50%" dy={25} textAnchor="middle" className="text-sm fill-slate-400">
@@ -92,7 +92,7 @@ interface VoterTypeChartProps {
 const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
   if (voters.length === 0) return <div className="h-[300px] flex items-center justify-center text-center text-gray-500">No voter data available.</div>;
 
-  const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+  const physicalVotersCount = voters.filter(v => v.voter_type === 'physical').length;
   const onlineVotersCount = voters.length - physicalVotersCount;
   
   const data = [
@@ -112,7 +112,6 @@ const VoterTypeChart: React.FC<VoterTypeChartProps> = ({ voters }) => {
           fill="#8884d8"
           dataKey="value"
           labelLine={false}
-          // FIX: Using `any` to bypass a complex typing issue with recharts library's PieLabelRenderProps.
           label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
             if (percent == null || percent === 0) return null;
             const RADIAN = Math.PI / 180;
@@ -179,7 +178,7 @@ const VoterTypeBreakdown: React.FC<VoterTypeBreakdownProps> = ({ voters }) => {
         return <div className="text-center text-gray-500 py-8">No voter data available.</div>;
     }
 
-    const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+    const physicalVotersCount = voters.filter(v => v.voter_type === 'physical').length;
     const onlineVotersCount = voters.length - physicalVotersCount;
     const totalVoters = voters.length;
     const onlinePercentage = totalVoters > 0 ? (onlineVotersCount / totalVoters) * 100 : 0;
@@ -252,7 +251,7 @@ const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; position
             <div className={`w-12 h-12 text-3xl font-bold flex items-center justify-center flex-shrink-0 ${rankClass}`}>
                 {rank === 1 ? <i className="fas fa-trophy"></i> : rank}
             </div>
-            <img src={photo_url} alt={name} className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"/>
+            <img src={photo_url || DEFAULT_CANDIDATE_PHOTO_URL} alt={name} className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"/>
             <div className="flex-grow">
                 <p className="font-bold text-lg text-white">{name}</p>
                 <div className="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden">
@@ -330,6 +329,8 @@ const AdminPortal: React.FC = () => {
     const [studentName, setStudentName] = useState('');
     const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
     const [registrationSearchTerm, setRegistrationSearchTerm] = useState('');
+    const [registrationSearchLoading, setRegistrationSearchLoading] = useState(false);
+    const [filteredRegistrations, setFilteredRegistrations] = useState<Registration[]>([]);
     const [bulkRegData, setBulkRegData] = useState('');
 
 
@@ -369,9 +370,8 @@ const AdminPortal: React.FC = () => {
                 .from('directors')
                 .select('*')
                 .eq('username', username)
-                .eq('password', password)
                 .single();
-            if (error || !data) throw new Error('Invalid username or password');
+            if (error || !data || data.password !== password) throw new Error('Invalid username or password');
             setCurrentUser(data);
         } catch (err: any) {
             setLoginError(err.message);
@@ -443,10 +443,9 @@ const AdminPortal: React.FC = () => {
         allVoters.push(...data);
         start += BATCH_SIZE;
     }
-
-    console.log('Total voters loaded:', allVoters.length); // Should show real number
     setVoters(allVoters);
 }, []);
+
     const fetchRegistrations = useCallback(async () => {
     let allRegistrations: Registration[] = [];
     const BATCH_SIZE = 1000;
@@ -469,11 +468,9 @@ const AdminPortal: React.FC = () => {
         allRegistrations = allRegistrations.concat(data);
         start += BATCH_SIZE;
 
-        // Optional: stop early if we know total
         if (count && allRegistrations.length >= count) break;
     }
 
-    console.log('Total registrations loaded:', allRegistrations.length); // Should be 6139+
     setRegistrations(allRegistrations);
 }, []);
     const fetchAdmins = useCallback(async () => {
@@ -482,7 +479,6 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const getFinalVoteCounts = useCallback(async () => {
-    // --- 1. Load ALL candidates (batch) ---
     let allCandidates: Candidate[] = [];
     let start = 0;
     const BATCH_SIZE = 1000;
@@ -502,14 +498,12 @@ const AdminPortal: React.FC = () => {
         return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
     }
 
-    // --- 2. Build candidate ID map: (position_name → id) ---
     const candidateIdMap = new Map<string, string>();
     allCandidates.forEach(c => {
         const key = `${c.position}_${c.name}`;
         candidateIdMap.set(key, c.id);
     });
 
-    // --- 3. Load ALL online votes (batch) ---
     const voteCounts = new Map<string, number>(
         allCandidates.map(c => [c.id, 0])
     );
@@ -532,7 +526,6 @@ const AdminPortal: React.FC = () => {
         start += BATCH_SIZE;
     }
 
-    // --- 4. Load ALL physical votes (usually small, but safe) ---
     const { data: physicalVotes } = await supabase
         .from('physical_votes')
         .select('votes');
@@ -558,7 +551,6 @@ const AdminPortal: React.FC = () => {
         }
     });
 
-    // --- 5. Calculate total votes ---
     const totalVotes = Array.from(voteCounts.values()).reduce((sum, count) => sum + count, 0);
 
     return {
@@ -578,6 +570,7 @@ const AdminPortal: React.FC = () => {
         const typedCandidates = candidates as Candidate[];
         const positions = [...new Set(typedCandidates.map(c => c.position))];
         const formattedResults = positions.map(position => {
+            if (!position) return null;
             const candidatesForPosition = typedCandidates.filter(c => c.position === position);
             const totalVotesForPosition = candidatesForPosition.reduce((sum, c) => sum + (voteCounts.get(c.id) || 0), 0);
 
@@ -610,8 +603,8 @@ const AdminPortal: React.FC = () => {
                 totalVotes: totalVotesForPosition,
                 candidates: finalCandidates,
             };
-        });
-        setResults(formattedResults);
+        }).filter(Boolean);
+        setResults(formattedResults as any[]);
     }, [getFinalVoteCounts]);
     
     const fetchRecentVoters = useCallback(async () => {
@@ -619,7 +612,7 @@ const AdminPortal: React.FC = () => {
         .from('votes')
         .select('voter_id, created_at')
         .order('created_at', { ascending: false })
-        .limit(7); // still only 7
+        .limit(7);
 
     if (!votesData?.length) {
         setRecentVoters([]);
@@ -647,8 +640,8 @@ const AdminPortal: React.FC = () => {
         .filter(Boolean) as any[];
     setRecentVoters(sorted);
 }, []);
+
     const fetchSecurityData = useCallback(async () => {
-        // 1. Fetch all voters and online votes
         const { data: votersData, error: votersError } = await supabase.from('voters').select('*').order('created_at');
         const { data: votesData, error: votesError } = await supabase.from('votes').select('voter_id, created_at');
 
@@ -657,7 +650,6 @@ const AdminPortal: React.FC = () => {
             return;
         }
 
-        // 2. Analyze for duplicate registration numbers
         const registrationMap = new Map<string, Voter[]>();
         votersData?.forEach(voter => {
             if (voter.registration_number) {
@@ -672,7 +664,6 @@ const AdminPortal: React.FC = () => {
             .filter(([_, votersList]) => votersList.length > 1)
             .map(([registration_number, voters]) => ({ registration_number, voters }));
 
-        // 3. Analyze session timings for online voters
         const voteTimeMap = new Map<string, string>();
         votesData?.forEach(vote => {
             voteTimeMap.set(vote.voter_id, vote.created_at);
@@ -684,7 +675,7 @@ const AdminPortal: React.FC = () => {
             if (voteTime) {
                 const regTime = new Date(voter.created_at).getTime();
                 const vTime = new Date(voteTime).getTime();
-                duration = Math.round((vTime - regTime) / 1000); // duration in seconds
+                duration = Math.round((vTime - regTime) / 1000);
             }
             return {
                 ...voter,
@@ -706,19 +697,17 @@ const AdminPortal: React.FC = () => {
         }
     }, [currentUser, loadAllData]);
 
-    // Supabase real-time subscription
     useEffect(() => {
         if (!currentUser) return;
 
         const handleNewVote = (payload: any) => {
-            console.log('New vote received!', payload);
-            loadAllData(); // Refresh all data
+            loadAllData();
             setNewVoteToast('A new vote has been registered!');
             
             setFlashVotesCard(true);
-            setTimeout(() => setFlashVotesCard(false), 2000); // Duration of the flash animation
+            setTimeout(() => setFlashVotesCard(false), 2000);
             
-            setTimeout(() => setNewVoteToast(null), 5000); // Hide toast after 5 seconds
+            setTimeout(() => setNewVoteToast(null), 5000);
         };
 
         const channel = supabase
@@ -728,7 +717,6 @@ const AdminPortal: React.FC = () => {
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
                     setIsLive(true);
-                    console.log('Connected to real-time channel!');
                 } else {
                     setIsLive(false);
                 }
@@ -739,17 +727,15 @@ const AdminPortal: React.FC = () => {
         };
     }, [currentUser, loadAllData]);
     
-    // Auto-refresh for statistics view
     useEffect(() => {
         if (view === 'STATISTICS' && electionStatus === 'Active') {
             const intervalId = setInterval(() => {
                 loadAllData();
-            }, 10000); // Refresh every 10 seconds
+            }, 10000);
             return () => clearInterval(intervalId);
         }
     }, [view, loadAllData, electionStatus]);
 
-    // This effect detects changes in vote counts to trigger animations
     useEffect(() => {
         if (view === 'STATISTICS' && prevResultsRef.current && prevResultsRef.current.length > 0) {
             const updates = new Set<string>();
@@ -773,7 +759,7 @@ const AdminPortal: React.FC = () => {
                 setUpdatedCandidates(updates);
                 const timer = setTimeout(() => {
                     setUpdatedCandidates(new Set());
-                }, 3000); // Animation highlight duration
+                }, 3000);
                 return () => clearTimeout(timer);
             }
         }
@@ -825,8 +811,32 @@ const AdminPortal: React.FC = () => {
         setIsRegistrationActive(deadlineDate.getTime() > now.getTime());
     }, [registrationDeadlineRaw]);
     
-    // --- ACTIONS ---
+    useEffect(() => {
+        setFilteredRegistrations(registrations.sort((a, b) => a.registration_number.localeCompare(b.registration_number)));
+    }, [registrations]);
 
+    useEffect(() => {
+        setRegistrationSearchLoading(true);
+        const handler = setTimeout(() => {
+            const searchTerm = registrationSearchTerm.trim().toLowerCase();
+            if (searchTerm) {
+                const filtered = registrations.filter(reg =>
+                    reg.student_name.toLowerCase().includes(searchTerm) ||
+                    reg.registration_number.toLowerCase().startsWith(searchTerm)
+                );
+                setFilteredRegistrations(filtered.sort((a, b) => a.registration_number.localeCompare(b.registration_number)));
+            } else {
+                setFilteredRegistrations(registrations.sort((a, b) => a.registration_number.localeCompare(b.registration_number)));
+            }
+            setRegistrationSearchLoading(false);
+        }, 500);
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [registrationSearchTerm, registrations]);
+
+    // --- ACTIONS ---
     const handleSetDeadline = async () => {
         setLoading(true);
         setFormMessage(null);
@@ -908,7 +918,6 @@ const AdminPortal: React.FC = () => {
             setLoading(true);
             setFormMessage(null);
             try {
-                // We must delete candidates first due to foreign key constraints
                 await supabase.from('candidates').delete().eq('position', positionName);
                 await supabase.from('positions').delete().eq('id', positionId);
                 setFormMessage({ type: 'success', text: `Position "${positionName}" and its candidates deleted.` });
@@ -1031,6 +1040,10 @@ const AdminPortal: React.FC = () => {
 
     const handleAddOrUpdateRegistration = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (electionStatus === 'Active') {
+            setFormMessage({ type: 'error', text: 'Registrations cannot be added or modified while voting is in progress.' });
+            return;
+        }
         if (!regNumber || !studentName) {
             setFormMessage({ type: 'error', text: 'Registration number and student name are required.' });
             return;
@@ -1063,6 +1076,10 @@ const AdminPortal: React.FC = () => {
     };
 
     const handleEditRegistration = (reg: Registration) => {
+        if (electionStatus === 'Active') {
+            setFormMessage({ type: 'error', text: 'Registrations cannot be edited while voting is in progress.' });
+            return;
+        }
         setEditingRegistration(reg);
         setRegNumber(reg.registration_number);
         setStudentName(reg.student_name);
@@ -1077,6 +1094,10 @@ const AdminPortal: React.FC = () => {
     };
 
     const handleDeleteRegistration = async (id: number) => {
+        if (electionStatus === 'Active') {
+            setFormMessage({ type: 'error', text: 'Registrations cannot be deleted while voting is in progress.' });
+            return;
+        }
         if (window.confirm("Are you sure you want to delete this registration entry?")) {
             const { error } = await supabase.from('registrations').delete().eq('id', id);
             if (error) {
@@ -1089,6 +1110,10 @@ const AdminPortal: React.FC = () => {
     };
     
     const handleBulkAddRegistrations = async () => {
+        if (electionStatus === 'Active') {
+            setFormMessage({ type: 'error', text: 'Registrations cannot be added or modified while voting is in progress.' });
+            return;
+        }
         if (!bulkRegData.trim()) {
             setFormMessage({ type: 'error', text: 'Bulk data field is empty.' });
             return;
@@ -1167,6 +1192,7 @@ const AdminPortal: React.FC = () => {
                 const finalResults: { [key: string]: any[] } = {};
                 
                 positions.forEach(position => {
+                    if (!position) return;
                     const candidatesForPosition = typedCandidates.filter(c => c.position === position);
                     const totalVotesForPosition = candidatesForPosition.reduce((sum, c) => sum + (voteCounts.get(c.id) || 0), 0);
                     
@@ -1193,9 +1219,8 @@ const AdminPortal: React.FC = () => {
     const filteredAndSortedVoters = voters
     .filter(voter => {
         if (voterTypeFilter === 'all') return true;
-        const isPhysical = /[0-9]/.test(voter.username);
-        if (voterTypeFilter === 'physical') return isPhysical;
-        if (voterTypeFilter === 'online') return !isPhysical;
+        if (voterTypeFilter === 'physical') return voter.voter_type === 'physical';
+        if (voterTypeFilter === 'online') return voter.voter_type === 'online';
         return true;
     })
     .filter(voter => {
@@ -1211,8 +1236,8 @@ const AdminPortal: React.FC = () => {
     .sort((a, b) => {
         let comparison = 0;
         if (voterSortKey === 'voter_type') {
-            const typeA = /[0-9]/.test(a.username) ? 'Physical' : 'Online';
-            const typeB = /[0-9]/.test(b.username) ? 'Physical' : 'Online';
+            const typeA = a.voter_type || 'online';
+            const typeB = b.voter_type || 'online';
             comparison = typeA.localeCompare(typeB);
         } else {
             const key = voterSortKey as 'username' | 'created_at' | 'has_voted';
@@ -1310,7 +1335,6 @@ const AdminPortal: React.FC = () => {
                     {formMessage && <div className={`p-3 rounded-lg text-center mb-6 text-sm ${formMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{formMessage.text}</div>}
                     <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                         
-                        {/* Left Column: Forms */}
                         <div className="xl:col-span-1 space-y-8">
                             <div className="p-6 bg-gray-50 rounded-xl border">
                                 <h3 className="text-xl font-semibold mb-4">Manage Positions</h3>
@@ -1361,7 +1385,6 @@ const AdminPortal: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Right Column: Candidates List */}
                         <div className="xl:col-span-2">
                              <h3 className="text-2xl font-bold text-slate-800 mb-4">Candidate Roster</h3>
                              <div className="space-y-6 max-h-[42rem] overflow-y-auto p-1">
@@ -1378,7 +1401,7 @@ const AdminPortal: React.FC = () => {
                                                     <ul className="space-y-3">
                                                         {candidatesForPosition.map((c) => (
                                                             <li key={c.id} className="flex items-center gap-4 p-2 pr-4 bg-slate-50 border rounded-lg transition-shadow hover:shadow-md">
-                                                                <img src={c.photo_url} alt={c.name} className="w-16 h-16 rounded-lg object-cover"/>
+                                                                <img src={c.photo_url || DEFAULT_CANDIDATE_PHOTO_URL} alt={c.name} className="w-16 h-16 rounded-lg object-cover"/>
                                                                 <div className="flex-grow">
                                                                      <p className="font-bold text-lg text-slate-800">{c.name}</p>
                                                                      <p className="text-sm text-slate-500">{c.position}</p>
@@ -1402,7 +1425,7 @@ const AdminPortal: React.FC = () => {
                 </Page>
             );
             case 'VOTERS': {
-                const physicalVotersCount = voters.filter(v => /[0-9]/.test(v.username)).length;
+                const physicalVotersCount = voters.filter(v => v.voter_type === 'physical').length;
                 const onlineVotersCount = voters.length - physicalVotersCount;
 
                 const voterNumberMap = new Map<string, number>();
@@ -1484,8 +1507,7 @@ const AdminPortal: React.FC = () => {
                        <div className="space-y-4 max-h-96 overflow-y-auto p-2">
                             {filteredAndSortedVoters.length === 0 ? <p className="text-center text-gray-500">No voters match your criteria.</p> :
                                filteredAndSortedVoters.map((v: Voter) => {
-                                    const isPhysical = /[0-9]/.test(v.username);
-                                    const voterTypeLabel = isPhysical ? 'Physical' : 'Online';
+                                    const voterTypeLabel = v.voter_type === 'physical' ? 'Physical' : 'Online';
                                     const labelColorClasses = 'text-slate-800 bg-slate-200';
                                     const voterNumber = voterNumberMap.get(v.id);
     
@@ -1515,23 +1537,26 @@ const AdminPortal: React.FC = () => {
                 );
             }
             case 'REGISTRATIONS': {
-                const filteredRegistrations = registrations.filter(reg =>
-                    reg.student_name.toLowerCase().includes(registrationSearchTerm.toLowerCase()) ||
-                    reg.registration_number.toLowerCase().includes(registrationSearchTerm.toLowerCase())
-                );
+                const isVotingActive = electionStatus === 'Active';
                 return (
                     <Page title="Manage Registration Numbers">
                         <div className="max-w-xl mx-auto space-y-8">
                              <form onSubmit={handleAddOrUpdateRegistration} className="p-6 bg-gray-50 rounded-lg border">
                                 <h3 className="text-xl font-semibold mb-4 text-center">{editingRegistration ? 'Edit Registration' : 'Add New Registration'}</h3>
+                                {isVotingActive && (
+                                    <div className="p-3 mb-4 rounded-lg text-center text-sm bg-yellow-100 text-yellow-800 border border-yellow-200">
+                                        <i className="fas fa-exclamation-triangle mr-2"></i>
+                                        Registration management is disabled while voting is active.
+                                    </div>
+                                )}
                                 <div className="space-y-4">
-                                    <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" />
-                                    <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" />
+                                    <input type="text" placeholder="Registration Number" value={regNumber} onChange={e => setRegNumber(e.target.value)} className="w-full p-3 border rounded-lg" disabled={isVotingActive} />
+                                    <input type="text" placeholder="Student's Full Name" value={studentName} onChange={e => setStudentName(e.target.value)} className="w-full p-3 border rounded-lg" disabled={isVotingActive} />
                                     <div className="flex gap-2">
                                         {editingRegistration && (
-                                            <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition">Cancel</button>
+                                            <button type="button" onClick={handleCancelEdit} className="w-full bg-gray-500 text-white font-bold py-3 rounded-lg hover:bg-gray-600 transition" disabled={isVotingActive}>Cancel</button>
                                         )}
-                                        <button type="submit" disabled={loading} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">
+                                        <button type="submit" disabled={loading || isVotingActive} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400">
                                             {loading ? <i className="fas fa-spinner fa-spin"></i> : (editingRegistration ? 'Update Entry' : 'Add Entry')}
                                         </button>
                                     </div>
@@ -1551,12 +1576,12 @@ const AdminPortal: React.FC = () => {
                                         onChange={e => setBulkRegData(e.target.value)}
                                         className="w-full p-3 border rounded-lg h-40 font-mono text-sm"
                                         rows={10}
-                                        disabled={loading}
+                                        disabled={loading || isVotingActive}
                                     />
                                     <button 
                                         type="button" 
                                         onClick={handleBulkAddRegistrations}
-                                        disabled={loading} 
+                                        disabled={loading || isVotingActive} 
                                         className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition disabled:bg-slate-400 flex items-center justify-center gap-2">
                                         {loading ? <><i className="fas fa-spinner fa-spin"></i> Processing...</> : <><i className="fas fa-file-upload"></i> Import Bulk Data</>}
                                     </button>
@@ -1579,19 +1604,42 @@ const AdminPortal: React.FC = () => {
                                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             </div>
                             <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2 max-w-xl mx-auto">
-                                {registrations.length === 0 ? (
+                                {registrationSearchLoading ? (
+                                    <div className="flex justify-center items-center py-10">
+                                       <i className="fas fa-spinner fa-spin text-3xl text-slate-500"></i>
+                                    </div>
+                                ) : registrations.length === 0 ? (
                                     <p className="text-center text-gray-500">No registration numbers added yet.</p>
                                 ) : filteredRegistrations.length === 0 ? (
                                     <p className="text-center text-gray-500">No registrations found matching your search.</p>
                                 ) : (
                                     filteredRegistrations.map((reg, index) => (
                                         <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
-                                            <span className="font-mono text-gray-500 w-8 text-center">{index + 1}.</span>
+                                            <span className="font-mono text-gray-500 w-8 text-center flex-shrink-0">{index + 1}.</span>
                                             <div className="flex-grow">
                                                 <p className="font-bold text-slate-800">{reg.student_name}</p>
                                                 <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
                                             </div>
-                                           
+                                            <div className="flex-shrink-0 space-x-1">
+                                                <button
+                                                    onClick={() => handleEditRegistration(reg)}
+                                                    disabled={isVotingActive}
+                                                    className="text-gray-400 hover:text-slate-600 w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                    aria-label="Edit Registration"
+                                                    title="Edit Registration"
+                                                >
+                                                    <i className="fas fa-pencil-alt text-sm"></i>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteRegistration(reg.id)}
+                                                    disabled={isVotingActive}
+                                                    className="text-gray-400 hover:text-red-600 w-8 h-8 rounded-full hover:bg-red-100 flex items-center justify-center transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                    aria-label="Delete Registration"
+                                                    title="Delete Registration"
+                                                >
+                                                    <i className="fas fa-trash-alt text-sm"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     ))
                                 )}
@@ -1637,7 +1685,7 @@ const AdminPortal: React.FC = () => {
                                                 <div className={`text-2xl font-bold w-10 text-center ${c.rank === 1 ? 'text-amber-400' : 'text-gray-400'}`}>
                                                   {c.rank === 1 ? <i className="fas fa-trophy"></i> : c.rank}
                                                 </div>
-                                                <img src={c.photo_url} alt={c.name} className="w-14 h-14 rounded-full object-cover"/>
+                                                <img src={c.photo_url || DEFAULT_CANDIDATE_PHOTO_URL} alt={c.name} className="w-14 h-14 rounded-full object-cover"/>
                                                 <div className="flex-grow">
                                                     <div className="flex justify-between items-center mb-1">
                                                         <span className="font-semibold">{c.name}</span>
@@ -1657,18 +1705,17 @@ const AdminPortal: React.FC = () => {
                             ))
                         }
                     </div>
-                    <div className="text-center mt-8">
-                         <button onClick={handlePostResults} disabled={loading} className="w-full max-w-sm mx-auto bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition-colors disabled:bg-slate-400 flex items-center justify-center gap-2">
-                            <i className="fas fa-bullhorn"></i> Post Results
-                        </button>
-                    </div>
+                    <div className="text-center mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
+                        <button onClick={handlePostResults} disabled={loading} className="w-full max-w-sm mx-auto bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition-colors disabled:bg-slate-400 flex items-center justify-center gap-2">
+                           <i className="fas fa-bullhorn"></i> Post Results
+                       </button>
+                   </div>
                 </Page>
             );
             case 'STATISTICS': {
                 return (
                     <div className="space-y-6 animate-fade-in">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {/* Main column for position races */}
                             <div className="lg:col-span-2 space-y-8">
                                 {results.length > 0 ? (
                                     results.map(pos => (
@@ -1687,7 +1734,6 @@ const AdminPortal: React.FC = () => {
                                 )}
                             </div>
                             
-                            {/* Sidebar for overall stats and live feed */}
                             <div className="lg:col-span-1 space-y-6">
                                 <StatCard 
                                     icon="fa-vote-yea" 
@@ -1720,7 +1766,7 @@ const AdminPortal: React.FC = () => {
                                             ))}
                                         </ul>
                                         {recentVoters.length === 0 && (
-                                            <div className="h-full flex items-center justify-center text-center text-slate-400">
+                                            <div className="h-full flex flex-col items-center justify-center text-center text-slate-400">
                                                 <i className="fas fa-satellite-dish text-3xl mb-2"></i>
                                                 <p>Waiting for new online votes...</p>
                                             </div>
@@ -1736,7 +1782,7 @@ const AdminPortal: React.FC = () => {
                 const filteredSessions = securityData.sessionTimings
                     .filter(s => {
                         if (sessionFilter === 'voted' && !s.has_voted) return false;
-                        if (sessionFilter === 'fast' && (!s.duration || s.duration > 30)) return false; // fast vote defined as <= 30s
+                        if (sessionFilter === 'fast' && (!s.duration || s.duration > 30)) return false;
                         return true;
                     })
                     .filter(s => 
@@ -1748,12 +1794,11 @@ const AdminPortal: React.FC = () => {
                 return (
                     <Page title="Security & Anti-Fraud Center">
                         <div className="space-y-8">
-                            {/* Duplicate Registrations Section */}
                             <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
                                 <h3 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3">
                                     <i className="fas fa-copy text-red-500"></i>Duplicate Registration Numbers
                                 </h3>
-                                <p className="text-slate-500 mb-6">This check identifies if a single registration number has been used to create multiple voter accounts (e.g., one for online and one for physical voting). This is a strong indicator of potential fraud.</p>
+                                <p className="text-slate-500 mb-6">This check identifies if a single registration number has been used to create multiple voter accounts. This is a strong indicator of potential fraud.</p>
                                 
                                 {securityData.duplicateRegistrations.length > 0 ? (
                                     <div className="space-y-4">
@@ -1763,7 +1808,7 @@ const AdminPortal: React.FC = () => {
                                                 <p className="text-sm text-red-600 mb-3">This registration number is linked to {voters.length} different voter accounts.</p>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     {voters.map(voter => {
-                                                        const isPhysical = /[0-9]/.test(voter.username);
+                                                        const isPhysical = voter.voter_type === 'physical';
                                                         return (
                                                             <div key={voter.id} className="bg-white p-3 rounded shadow-sm border">
                                                                 <p className="font-semibold">{voter.username}</p>
@@ -1787,14 +1832,12 @@ const AdminPortal: React.FC = () => {
                                 )}
                             </div>
             
-                            {/* Session Analysis Section */}
                             <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
                                 <h3 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3">
                                     <i className="fas fa-hourglass-half text-slate-500"></i>Voter Session Analysis
                                 </h3>
                                 <p className="text-slate-500 mb-6">Review the time between a voter's registration and when they cast their vote. Extremely short durations can indicate automated or suspicious activity.</p>
                                 
-                                {/* Controls for the table */}
                                 <div className="mb-4 p-4 bg-slate-50 rounded-lg border space-y-4">
                                    <div className="relative">
                                        <input
@@ -1826,7 +1869,7 @@ const AdminPortal: React.FC = () => {
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
                                             {filteredSessions.length > 0 ? filteredSessions.map(voter => {
-                                                const isPhysical = /[0-9]/.test(voter.username);
+                                                const isPhysical = voter.voter_type === 'physical';
                                                 const isFastVote = voter.duration !== undefined && voter.duration <= 30;
                                                 return (
                                                     <tr key={voter.id} className={`${isFastVote ? 'bg-red-50' : ''}`}>
@@ -1983,7 +2026,6 @@ const AdminPortal: React.FC = () => {
           `}
         </style>
         <div className={`min-h-screen text-slate-800 ${view === 'STATISTICS' ? 'bg-slate-900' : 'bg-slate-100'}`}>
-            {/* Live Status Indicator & Toast */}
             {isLive && (
                 <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-slate-800 text-white px-3 py-1.5 rounded-full text-sm shadow-lg border border-slate-700">
                     <span className="relative flex h-3 w-3">
@@ -1999,14 +2041,13 @@ const AdminPortal: React.FC = () => {
                 </div>
             )}
 
-            {/* Mobile Header */}
             <header className="md:hidden bg-slate-800 text-white p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-20 shadow-lg">
                 {view !== 'STATISTICS' ? (
                     <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="text-2xl w-8 text-center">
                         <i className="fas fa-bars"></i>
                     </button>
                 ) : (
-                    <div className="w-8"></div> // Placeholder to keep title centered
+                    <div className="w-8"></div>
                 )}
                 <div className="text-lg font-bold flex-grow text-center">{view.charAt(0) + view.slice(1).toLowerCase()}</div>
                 <div className="flex items-center gap-2">
@@ -2015,7 +2056,6 @@ const AdminPortal: React.FC = () => {
                 </div>
             </header>
             
-            {/* Sidebar */}
             {view !== 'STATISTICS' && (
                 <aside className={`bg-slate-800 text-white w-64 fixed top-0 left-0 h-full z-30 transform transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
                     <nav className="p-4 pt-8">
@@ -2035,10 +2075,8 @@ const AdminPortal: React.FC = () => {
                 </aside>
             )}
             
-            {/* Overlay for mobile */}
             {isSidebarOpen && view !== 'STATISTICS' && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black opacity-50 z-20 md:hidden"></div>}
 
-            {/* Main Content */}
             <main className={`${view === 'STATISTICS' ? '' : 'md:ml-64'} pt-20 md:pt-8 p-4 sm:p-8 transition-all duration-300`}>
                  <h1 className={`text-4xl font-bold mb-2 ${view === 'STATISTICS' ? 'text-white' : 'text-slate-900'}`}>
                     {view === 'STATISTICS' ? 'Election Tally Center' : 'Managing Portal'}
