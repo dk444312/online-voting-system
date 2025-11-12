@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 
-// --- Configuration Constant ---
-const IP_REGISTRATION_LIMIT = 1; 
+// --- Configuration ---
+const IP_REGISTRATION_LIMIT = 1;
 
-// --- Type Definitions ---
-
+// --- Types ---
 interface FormData {
+    email: string;
     registrationNumber: string;
     fullName: string;
     username: string;
@@ -24,8 +24,7 @@ interface ModalProps {
     isLarge?: boolean;
 }
 
-// --- SVG Icon Components ---
-
+// --- SVG Icons ---
 const CheckCircleIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-black mx-auto" viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -33,7 +32,7 @@ const CheckCircleIcon = () => (
 );
 
 const CloseIcon = () => (
-     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
 );
@@ -54,27 +53,19 @@ const EyeClosedIcon = () => (
     </svg>
 );
 
-
-// --- Reusable UI Components ---
-
+// --- Reusable Components ---
 const GoogleModal: React.FC<ModalProps> = ({ title, children, onClose, show, footer, isLarge = false }) => {
     if (!show) return null;
-
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 transition-opacity" onClick={onClose}>
-            <div
-                className={`bg-white rounded-lg shadow-xl transform transition-all m-4 ${isLarge ? 'max-w-lg w-full' : 'max-w-md w-full'}`}
-                onClick={(e) => e.stopPropagation()}
-            >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={onClose}>
+            <div className={`bg-white rounded-lg shadow-xl m-4 ${isLarge ? 'max-w-lg w-full' : 'max-w-md w-full'}`} onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center p-4 border-b border-gray-200">
                     <h3 className="text-lg font-medium text-gray-800">{title}</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black">
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 rounded-full p-1">
                         <CloseIcon />
                     </button>
                 </div>
-                <div className="p-6">
-                    {children}
-                </div>
+                <div className="p-6">{children}</div>
                 {footer && (
                     <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 rounded-b-lg">
                         {footer}
@@ -93,8 +84,9 @@ const FormInput: React.FC<{
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     type?: string;
     required?: boolean;
+    maxLength?: number;
     children?: React.ReactNode;
-}> = ({ id, name, label, value, onChange, type = "text", required = true, children }) => (
+}> = ({ id, name, label, value, onChange, type = "text", required = true, maxLength, children }) => (
     <div className="relative">
         <input
             id={id}
@@ -102,30 +94,33 @@ const FormInput: React.FC<{
             type={type}
             value={value}
             onChange={onChange}
+            maxLength={maxLength}
             className="block px-3.5 pb-2.5 pt-4 w-full text-sm text-gray-900 bg-transparent rounded-lg border-2 border-gray-300 appearance-none focus:outline-none focus:ring-0 focus:border-black peer"
             placeholder=" "
             required={required}
         />
-        <label
-            htmlFor={id}
-            className="absolute text-sm text-gray-500 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-white px-2 peer-focus:px-2 peer-focus:text-black peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 start-2"
-        >
+        <label htmlFor={id} className="absolute text-sm text-gray-500 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-white px-2 peer-focus:px-2 peer-focus:text-black peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 start-2">
             {label}
         </label>
         {children && <div className="absolute inset-y-0 right-0 pr-3 flex items-center">{children}</div>}
     </div>
 );
 
-
+// --- Main Component ---
 const VoterRegistration: React.FC = () => {
-    const [step, setStep] = useState<'verify' | 'create'>('verify');
+    const [step, setStep] = useState<'email' | 'verify' | 'create'>('email');
     const [formData, setFormData] = useState<FormData>({
+        email: '',
         registrationNumber: '',
         fullName: '',
         username: '',
         password: '',
         confirmPassword: '',
     });
+    const [otp, setOtp] = useState('');
+    const [otpLoading, setOtpLoading] = useState(false);
+    const [otpError, setOtpError] = useState('');
+    const [otpTimer, setOtpTimer] = useState(0);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [clientIP, setClientIP] = useState<string | null>(null);
@@ -139,7 +134,12 @@ const VoterRegistration: React.FC = () => {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [credentialsDownloaded, setCredentialsDownloaded] = useState(false);
 
+    // --- Helpers ---
+    const isValidEmail = () => {
+        return formData.email.toLowerCase().endsWith('@cunima.ac.mw') && formData.email.includes('@');
+    };
 
+    // --- Effects ---
     useEffect(() => {
         const fetchIP = async () => {
             setIpLoading(true);
@@ -148,8 +148,7 @@ const VoterRegistration: React.FC = () => {
                 const data = await response.json();
                 setClientIP(data.ip);
             } catch (error) {
-                console.error('Failed to fetch client IP:', error);
-                setMessage({ type: 'error', text: 'Could not determine your IP address. Please check your connection.' });
+                setMessage({ type: 'error', text: 'Could not determine your IP address.' });
             } finally {
                 setIpLoading(false);
             }
@@ -162,24 +161,22 @@ const VoterRegistration: React.FC = () => {
             setPageLoading(true);
             try {
                 const { data, error } = await supabase.from('settings').select('value').eq('key', 'registration_deadline').single();
-
                 if (error && error.code !== 'PGRST116') throw error;
-                
+
                 if (data?.value) {
                     const deadlineDate = new Date(data.value);
                     if (new Date() < deadlineDate) {
                         setIsRegistrationOpen(true);
-                        setDeadlineMessage('Registration is currently open.');
+                        setDeadlineMessage('Registration is open.');
                     } else {
                         setIsRegistrationOpen(false);
                         setDeadlineMessage('Registration period has ended.');
                     }
                 } else {
-                    setIsRegistrationOpen(true); // Default to open if no setting is found
-                    setDeadlineMessage('Registration is currently open.');
+                    setIsRegistrationOpen(true);
+                    setDeadlineMessage('Registration is open.');
                 }
-            } catch (err: any) {
-                console.error('Error fetching registration status:', err);
+            } catch {
                 setDeadlineMessage('Could not verify registration status.');
                 setIsRegistrationOpen(false);
             } finally {
@@ -189,47 +186,107 @@ const VoterRegistration: React.FC = () => {
         fetchRegistrationStatus();
     }, []);
 
+    // --- Handlers ---
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
         setMessage(null);
+        setOtpError('');
+    };
+
+    const handleSendOtp = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const email = formData.email.trim().toLowerCase();
+        if (!isValidEmail()) {
+            setOtpError('Only @cunima.ac.mw emails are allowed.');
+            return;
+        }
+
+        setOtpLoading(true);
+        setOtpError('');
+
+        try {
+            const res = await fetch('https://your-project.supabase.co/functions/v1/send-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, ip: clientIP }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to send code');
+
+            setOtpTimer(60);
+            const timer = setInterval(() => {
+                setOtpTimer(t => {
+                    if (t <= 1) {
+                        clearInterval(timer);
+                        return 0;
+                    }
+                    return t - 1;
+                });
+            }, 1000);
+
+            setStep('verify');
+        } catch (err: any) {
+            setOtpError(err.message || 'Failed to send code.');
+        } finally {
+            setOtpLoading(false);
+        }
+    };
+
+    const handleVerifyOtp = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (otp.length !== 6) return;
+
+        setOtpLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('email_verifications')
+                .select('code, expires_at, used')
+                .eq('email', formData.email.toLowerCase())
+                .single();
+
+            if (error || !data) throw new Error('Invalid or expired code.');
+            if (data.used) throw new Error('This code has already been used.');
+            if (new Date(data.expires_at) < new Date()) throw new Error('Code has expired.');
+            if (data.code !== otp) throw new Error('Incorrect code.');
+
+            await supabase
+                .from('email_verifications')
+                .update({ used: true })
+                .eq('email', formData.email.toLowerCase());
+
+            setStep('create');
+        } catch (err: any) {
+            setMessage({ type: 'error', text: err.message });
+        } finally {
+            setOtpLoading(false);
+        }
     };
 
     const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setMessage(null);
-        if (!isRegistrationOpen) return setMessage({ type: 'error', text: 'Registration period has ended.' });
-        if (!clientIP) return setMessage({ type: 'error', text: 'Waiting to secure your connection. Please wait.' });
-        
+        if (!isRegistrationOpen || !clientIP) return;
+
         setLoading(true);
         const { registrationNumber, fullName } = formData;
 
         try {
-            // Check 1: Already voted digitally (from voters table)
-            const { data: voterData, error: voterError } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
-            if (voterError && voterError.code !== 'PGRST116') throw voterError;
-            if (voterData) {
-                if (voterData.has_voted) throw new Error("This registration number has already been used to cast a digital vote.");
-                throw new Error("An account already exists for this registration number. Please log in to vote.");
-            }
+            // Check 1: Already voted
+            const { data: voterData } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
+            if (voterData?.has_voted) throw new Error("Already voted.");
+            if (voterData) throw new Error("Account already exists. Please log in.");
 
-            // Check 2: Master list validation
-            const { data: regData, error: regError } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
-            if (regError && regError.code !== 'PGRST116') throw regError;
-            if (!regData) throw new Error("Invalid registration number or full name. Please check your official details.");
+            // Check 2: Master list
+            const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
+            if (!regData) throw new Error("Invalid registration number or name.");
 
-
-            // 🔑 Check 3: IP duplication - MODIFIED TO CHECK COUNT 🔑
-            const { count: ipCount, error: ipError } = await supabase
-                .from('voters')
-                .select('id', { count: 'exact' })
-                .eq('registration_ip', clientIP);
-
-            if (ipError) throw ipError;
-
+            // Check 3: IP limit
+            const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
-                throw new Error(`The maximum registration limit (${IP_REGISTRATION_LIMIT} users) for this network has been reached. Please contact support.`);
+                throw new Error(`Max ${IP_REGISTRATION_LIMIT} registration(s) per network.`);
             }
-            // ----------------------------------------------------
 
             setStep('create');
         } catch (error: any) {
@@ -243,42 +300,28 @@ const VoterRegistration: React.FC = () => {
         e.preventDefault();
         setMessage(null);
         if (formData.password !== formData.confirmPassword) return setMessage({ type: 'error', text: 'Passwords do not match.' });
-        if (formData.password.length < 6) return setMessage({ type: 'error', text: 'Password must be at least 6 characters long.' });
-        if (!agreedToTerms) return setMessage({ type: 'error', text: 'You must agree to the Terms and Conditions.' });
-        if (!clientIP) return setMessage({ type: 'error', text: 'IP address is missing. Please refresh.' });
+        if (formData.password.length < 6) return setMessage({ type: 'error', text: 'Password must be 6+ characters.' });
+        if (!agreedToTerms) return setMessage({ type: 'error', text: 'You must agree to the Terms.' });
+        if (!clientIP) return setMessage({ type: 'error', text: 'IP missing.' });
 
         setLoading(true);
-        const { registrationNumber, fullName, username, password } = formData;
-
         try {
-            // Check 1: Username availability
-            const { data: existingUser } = await supabase.from('voters').select('id').eq('username', username.trim()).maybeSingle();
-            if (existingUser) throw new Error('This username is already taken. Please choose another.');
+            const { data: existingUser } = await supabase.from('voters').select('id').eq('username', formData.username.trim()).maybeSingle();
+            if (existingUser) throw new Error('Username taken.');
 
-            // 🔑 Check 2: Re-check IP duplication just before insertion 🔑
-            const { count: ipCount, error: ipError } = await supabase
-                .from('voters')
-                .select('id', { count: 'exact' })
-                .eq('registration_ip', clientIP);
-            
-            if (ipError) throw ipError;
+            const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
+            if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) throw new Error('IP limit reached.');
 
-            if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
-                throw new Error(`Registration failed: The maximum limit (${IP_REGISTRATION_LIMIT}) for this network has been reached.`);
-            }
-            // ----------------------------------------------------
-
-
-            const { error: insertError } = await supabase.from('voters').insert([{
-                registration_number: registrationNumber.trim(),
-                full_name: fullName.trim(),
-                username: username.trim(),
-                password: password, // IMPORTANT: In a production app, this password should be hashed server-side.
+            const { error } = await supabase.from('voters').insert([{
+                registration_number: formData.registrationNumber.trim(),
+                full_name: formData.fullName.trim(),
+                username: formData.username.trim(),
+                password: formData.password,
                 has_voted: false,
                 registration_ip: clientIP,
             }]);
-            if (insertError) throw insertError;
-            
+            if (error) throw error;
+
             setShowCredentialsModal(true);
         } catch (error: any) {
             setMessage({ type: 'error', text: error.message || 'Registration failed.' });
@@ -292,62 +335,41 @@ const VoterRegistration: React.FC = () => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const width = 450;
-        const height = 250;
-        canvas.width = width;
-        canvas.height = height;
+        const w = 450, h = 250;
+        canvas.width = w; canvas.height = h;
 
-        // Background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(2, 2, width - 4, height - 4);
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(2, 2, w - 4, h - 4);
 
-        // Header
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('VOTING PORTAL CREDENTIALS', width / 2, 50);
-        
-        ctx.font = '14px sans-serif';
-        ctx.fillStyle = '#555555';
-        ctx.fillText('Please keep this information secure and do not share it.', width / 2, 80);
+        ctx.fillStyle = '#000'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('VOTING CREDENTIALS', w / 2, 50);
+        ctx.font = '14px sans-serif'; ctx.fillStyle = '#555'; ctx.fillText('Keep secure. Do not share.', w / 2, 80);
 
-        // Content
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#000000';
-        ctx.font = '16px sans-serif';
-        ctx.fillText('Username:', 60, 140);
-        ctx.fillText('Password:', 60, 190);
-        
+        ctx.textAlign = 'left'; ctx.fillStyle = '#000'; ctx.font = '16px sans-serif';
+        ctx.fillText('Username:', 60, 140); ctx.fillText('Password:', 60, 190);
         ctx.font = 'bold 20px monospace';
-        ctx.fillText(formData.username, 180, 140);
-        ctx.fillText(formData.password, 180, 190);
+        ctx.fillText(formData.username, 180, 140); ctx.fillText(formData.password, 180, 190);
 
-        // Trigger download
         const link = document.createElement('a');
         link.download = 'voting-credentials.png';
-        link.href = canvas.toDataURL('image/png');
+        link.href = canvas.toDataURL();
         link.click();
-        
         setCredentialsDownloaded(true);
     };
-    
+
     const handleConfirmAndRedirect = () => {
         setShowCredentialsModal(false);
-        setMessage({ type: 'success', text: 'Redirecting to the voting portal...' });
-        setTimeout(() => {
-            window.location.href = 'https://campusvote-mpy1.onrender.com';
-        }, 1000);
+        setMessage({ type: 'success', text: 'Redirecting...' });
+        setTimeout(() => { window.location.href = 'https://campusvote-mpy1.onrender.com'; }, 1000);
     };
 
+    // --- Render Loading ---
     if (pageLoading || ipLoading) {
         return (
             <div className="min-h-screen bg-white flex items-center justify-center p-4">
                 <div className="flex flex-col items-center gap-4">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-                    <p className="text-gray-600">{ipLoading ? 'Securing your connection...' : deadlineMessage}</p>
+                    <p className="text-gray-600">{ipLoading ? 'Securing connection...' : deadlineMessage}</p>
                 </div>
             </div>
         );
@@ -359,19 +381,22 @@ const VoterRegistration: React.FC = () => {
                 <div className="text-center mb-6">
                     <h1 className="text-3xl font-bold text-gray-900">Voter Registration</h1>
                     <p className="text-gray-500 mt-1">{deadlineMessage}</p>
-                    {clientIP && <p className="text-xs text-gray-400 mt-1">Your IP: {clientIP}</p>}
+                    {clientIP && <p className="text-xs text-gray-400 mt-1">IP: {clientIP}</p>}
                 </div>
 
                 {!isRegistrationOpen ? (
-                     <div className="text-center py-8">
-                        <p className="text-lg text-gray-800 font-semibold">Registration is now closed.</p>
-                     </div>
+                    <div className="text-center py-8">
+                        <p className="text-lg text-gray-800 font-semibold">Registration is closed.</p>
+                    </div>
                 ) : (
                     <div>
+                        {/* Progress Bar */}
                         <div className="flex justify-between items-center mb-8 text-sm font-medium">
-                             <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>1. Verification</span>
-                             <div className="flex-1 h-px bg-gray-200 mx-4"></div>
-                             <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>2. Create Account</span>
+                            <span className={step === 'email' ? 'text-black font-bold' : 'text-gray-500'}>1. Email</span>
+                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
+                            <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>2. Verify Code</span>
+                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
+                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>3. Register</span>
                         </div>
 
                         {message && (
@@ -380,48 +405,91 @@ const VoterRegistration: React.FC = () => {
                             </div>
                         )}
 
+                        {/* Step 1: Email */}
+                        {step === 'email' && (
+                            <form onSubmit={handleSendOtp} className="space-y-6">
+                                <div>
+                                    <FormInput id="email" name="email" label="School Email" value={formData.email} onChange={handleChange} type="email" />
+                                    <p className="text-xs text-gray-500 mt-1">Must end with <strong>@cunima.ac.mw</strong></p>
+                                    {formData.email && !isValidEmail() && (
+                                        <p className="text-red-600 text-xs mt-1">Use your CUNIMA email.</p>
+                                    )}
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={otpLoading || otpTimer > 0 || !isValidEmail()}
+                                    className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 transition-all flex items-center justify-center"
+                                >
+                                    {otpLoading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Send Code'}
+                                </button>
+                                {otpError && <p className="text-red-600 text-sm text-center">{otpError}</p>}
+                            </form>
+                        )}
+
+                        {/* Step 2: Verify OTP */}
                         {step === 'verify' && (
+                            <form onSubmit={handleVerifyOtp} className="space-y-6">
+                                <div className="text-center mb-4">
+                                    <p className="text-sm text-gray-600">Code sent to <strong>{formData.email}</strong></p>
+                                </div>
+                                <FormInput id="otp" name="otp" label="6-Digit Code" value={otp} onChange={e => setOtp(e.target.value)} maxLength={6} />
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={() => { setStep('email'); setOtp(''); }} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
+                                    <button type="submit" disabled={otpLoading || otp.length !== 6} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
+                                        {otpLoading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify'}
+                                    </button>
+                                </div>
+                                <p className="text-center text-xs text-gray-500">
+                                    Didn't receive? <button type="button" onClick={handleSendOtp} disabled={otpTimer > 0} className="text-black underline disabled:text-gray-400">
+                                        Resend {otpTimer > 0 && `(${otpTimer}s)`}
+                                    </button>
+                                </p>
+                            </form>
+                        )}
+
+                        {/* Step 3: Registration Verification */}
+                        {step === 'create' && (
                             <form onSubmit={handleVerify} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
-                                <FormInput id="fullName" name="fullName" label="Full Name (as in sims)" value={formData.fullName} onChange={handleChange} />
-                                <button type="submit" disabled={loading || ipLoading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all duration-300 disabled:bg-gray-400 flex items-center justify-center">
+                                <FormInput id="fullName" name="fullName" label="Full Name (as in SIMS)" value={formData.fullName} onChange={handleChange} />
+                                <button type="submit" disabled={loading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                     {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
                                 </button>
                             </form>
                         )}
 
-                        {step === 'create' && (
-                            <form onSubmit={handleRegister} className="space-y-6">
+                        {/* Step 4: Create Account (after verification) */}
+                        {step === 'create' && formData.registrationNumber && (
+                            <form onSubmit={handleRegister} className="space-y-6 mt-6">
                                 <div className="p-4 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg text-sm">
-                                    <p>Verified as: <span className="font-bold">{formData.fullName}</span></p>
-                                    <p>Please create your secure credentials for the voting portal.</p>
+                                    <p>Verified: <span className="font-bold">{formData.fullName}</span></p>
                                 </div>
-                                <FormInput id="username" name="username" label="Create a Username" value={formData.username} onChange={handleChange} />
-                                <FormInput id="password" name="password" label="Create a Password (min. 6 chars)" value={formData.password} onChange={handleChange} type={showPassword ? 'text' : 'password'}>
+                                <FormInput id="username" name="username" label="Username" value={formData.username} onChange={handleChange} />
+                                <FormInput id="password" name="password" label="Password (min 6)" value={formData.password} onChange={handleChange} type={showPassword ? 'text' : 'password'}>
                                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-gray-500 hover:text-black">
                                         {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
                                     </button>
                                 </FormInput>
                                 <FormInput id="confirmPassword" name="confirmPassword" label="Confirm Password" value={formData.confirmPassword} onChange={handleChange} type={showConfirmPassword ? 'text' : 'password'}>
-                                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="text-gray-500 hover:text-black">
+                                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="text-gray-500 hover:text-black">
                                         {showConfirmPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
                                     </button>
                                 </FormInput>
-                                
                                 <div className="flex items-start space-x-3">
-                                    <input type="checkbox" id="terms" checked={agreedToTerms} onChange={() => setAgreedToTerms(!agreedToTerms)} className="mt-1 h-4 w-4 text-black border-gray-300 rounded focus:ring-black" />
+                                    <input type="checkbox" id="terms" checked={agreedToTerms} onChange={() => setAgreedToTerms(!agreedToTerms)} className="mt-1 h-4 w-4 text-black border-gray-300 rounded" />
                                     <label htmlFor="terms" className="text-sm text-gray-600">
-                                        I agree to the <span className="text-black hover:underline cursor-pointer font-bold">Terms & Conditions</span> of the online voting process.
+                                        I agree to the <span className="text-black hover:underline cursor-pointer font-bold">Terms & Conditions</span>.
                                     </label>
                                 </div>
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => { setStep('verify'); setMessage(null); }} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100 transition-colors">Back</button>
-                                    <button type="submit" disabled={loading || !agreedToTerms} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 transition-all duration-300 disabled:bg-gray-400 flex items-center justify-center">
-                                        {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Complete Registration'}
+                                    <button type="button" onClick={() => setStep('verify')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
+                                    <button type="submit" disabled={loading || !agreedToTerms} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
+                                        {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Register'}
                                     </button>
                                 </div>
                             </form>
                         )}
+
                         <div className="text-center mt-6">
                             <Link to="https://campusvote-mpy1.onrender.com" className="text-sm text-black hover:underline font-medium">
                                 Already registered? Login here
@@ -431,38 +499,24 @@ const VoterRegistration: React.FC = () => {
                 )}
             </div>
 
-            <GoogleModal
-                title="IMPORTANT: Save Your Credentials"
-                show={showCredentialsModal}
-                onClose={() => {}} // Prevent closing
-                isLarge={true}
-                footer={<>
-                    <button onClick={handleDownloadCredentials} className="bg-white text-black border border-black font-semibold py-2 px-4 rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-colors">
-                        Download as PNG
+            {/* Credentials Modal */}
+            <GoogleModal title="Save Your Credentials" show={showCredentialsModal} onClose={() => {}} isLarge={true} footer={
+                <>
+                    <button onClick={handleDownloadCredentials} className="bg-white text-black border border-black font-semibold py-2 px-4 rounded-md hover:bg-gray-100">Download PNG</button>
+                    <button onClick={handleConfirmAndRedirect} disabled={!credentialsDownloaded} className="bg-black text-white font-semibold py-2 px-4 rounded-md hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        Go to Portal
                     </button>
-                    <button onClick={handleConfirmAndRedirect} disabled={!credentialsDownloaded} className="bg-black text-white font-semibold py-2 px-4 rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
-                        Go to Voting Portal
-                    </button>
-                </>}
-            >
+                </>
+            }>
                 <div className="space-y-4 text-center">
                     <CheckCircleIcon />
                     <p className="text-xl font-medium text-gray-800">Registration Complete!</p>
-                    <p className="text-sm text-gray-600">
-                        You <span className="font-bold">MUST</span> download your credentials before proceeding.
-                        This is the only time they will be shown to you.
-                    </p>
+                    <p className="text-sm text-gray-600"><span className="font-bold">MUST</span> download credentials.</p>
                     <div className="bg-gray-50 p-4 border border-gray-200 rounded-lg inline-block text-left space-y-3 w-full max-w-sm mx-auto">
-                        <div>
-                            <p className="text-xs text-gray-500">Your Username</p>
-                            <span className="font-mono font-bold text-lg text-gray-800">{formData.username}</span>
-                        </div>
-                        <div>
-                            <p className="text-xs text-gray-500">Your Password</p>
-                            <span className="font-mono font-bold text-lg text-gray-800">{formData.password}</span>
-                        </div>
+                        <div><p className="text-xs text-gray-500">Username</p><span className="font-mono font-bold text-lg">{formData.username}</span></div>
+                        <div><p className="text-xs text-gray-500">Password</p><span className="font-mono font-bold text-lg">{formData.password}</span></div>
                     </div>
-                    <p className="text-red-600 font-bold text-sm">Failure to save these credentials may prevent you from voting.</p>
+                    <p className="text-red-600 font-bold text-sm">Save now or lose access.</p>
                 </div>
             </GoogleModal>
         </div>
