@@ -4,6 +4,7 @@ import { supabase } from '../services/supabaseClient';
 
 // --- Configuration ---
 const IP_REGISTRATION_LIMIT = 1;
+const SUPABASE_FUNCTION_URL = 'https://ycjhhdhalisencahifsq.supabase.co/functions/v1/send-otp';
 
 // --- Types ---
 interface FormData {
@@ -108,7 +109,7 @@ const FormInput: React.FC<{
 
 // --- Main Component ---
 const VoterRegistration: React.FC = () => {
-    const [step, setStep] = useState<'email' | 'verify' | 'create'>('email');
+    const [step, setStep] = useState<'email' | 'verify' | 'verifyReg' | 'create'>('email');
     const [formData, setFormData] = useState<FormData>({
         email: '',
         registrationNumber: '',
@@ -206,7 +207,7 @@ const VoterRegistration: React.FC = () => {
         setOtpError('');
 
         try {
-            const res = await fetch('https://your-project.supabase.co/functions/v1/send-otp', {
+            const res = await fetch(SUPABASE_FUNCTION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, ip: clientIP }),
@@ -228,7 +229,7 @@ const VoterRegistration: React.FC = () => {
 
             setStep('verify');
         } catch (err: any) {
-            setOtpError(err.message || 'Failed to send code.');
+            setOtpError(err.message || 'Failed to send code. Check internet or try again.');
         } finally {
             setOtpLoading(false);
         }
@@ -256,7 +257,7 @@ const VoterRegistration: React.FC = () => {
                 .update({ used: true })
                 .eq('email', formData.email.toLowerCase());
 
-            setStep('create');
+            setStep('verifyReg');
         } catch (err: any) {
             setMessage({ type: 'error', text: err.message });
         } finally {
@@ -264,7 +265,7 @@ const VoterRegistration: React.FC = () => {
         }
     };
 
-    const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleVerifyRegistration = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setMessage(null);
         if (!isRegistrationOpen || !clientIP) return;
@@ -273,16 +274,13 @@ const VoterRegistration: React.FC = () => {
         const { registrationNumber, fullName } = formData;
 
         try {
-            // Check 1: Already voted
             const { data: voterData } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
             if (voterData?.has_voted) throw new Error("Already voted.");
             if (voterData) throw new Error("Account already exists. Please log in.");
 
-            // Check 2: Master list
             const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
             if (!regData) throw new Error("Invalid registration number or name.");
 
-            // Check 3: IP limit
             const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
                 throw new Error(`Max ${IP_REGISTRATION_LIMIT} registration(s) per network.`);
@@ -392,11 +390,11 @@ const VoterRegistration: React.FC = () => {
                     <div>
                         {/* Progress Bar */}
                         <div className="flex justify-between items-center mb-8 text-sm font-medium">
-                            <span className={step === 'email' ? 'text-black font-bold' : 'text-gray-500'}>1. Email</span>
+                            <span className={['email', 'verify', 'verifyReg', 'create'].includes(step) && step === 'email' ? 'text-black font-bold' : 'text-gray-500'}>1. Email</span>
                             <div className="flex-1 h-px bg-gray-200 mx-2"></div>
                             <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>2. Verify Code</span>
                             <div className="flex-1 h-px bg-gray-200 mx-2"></div>
-                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>3. Register</span>
+                            <span className={step === 'verifyReg' || step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>3. Register</span>
                         </div>
 
                         {message && (
@@ -447,20 +445,23 @@ const VoterRegistration: React.FC = () => {
                             </form>
                         )}
 
-                        {/* Step 3: Registration Verification */}
-                        {step === 'create' && (
-                            <form onSubmit={handleVerify} className="space-y-6">
+                        {/* Step 3: Verify Registration Number */}
+                        {step === 'verifyReg' && (
+                            <form onSubmit={handleVerifyRegistration} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
                                 <FormInput id="fullName" name="fullName" label="Full Name (as in SIMS)" value={formData.fullName} onChange={handleChange} />
-                                <button type="submit" disabled={loading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
-                                    {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
-                                </button>
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={() => setStep('verify')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
+                                    <button type="submit" disabled={loading} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
+                                        {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify'}
+                                    </button>
+                                </div>
                             </form>
                         )}
 
-                        {/* Step 4: Create Account (after verification) */}
-                        {step === 'create' && formData.registrationNumber && (
-                            <form onSubmit={handleRegister} className="space-y-6 mt-6">
+                        {/* Step 4: Create Account */}
+                        {step === 'create' && (
+                            <form onSubmit={handleRegister} className="space-y-6">
                                 <div className="p-4 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg text-sm">
                                     <p>Verified: <span className="font-bold">{formData.fullName}</span></p>
                                 </div>
@@ -482,7 +483,7 @@ const VoterRegistration: React.FC = () => {
                                     </label>
                                 </div>
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => setStep('verify')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
+                                    <button type="button" onClick={() => setStep('verifyReg')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
                                     <button type="submit" disabled={loading || !agreedToTerms} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                         {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Register'}
                                     </button>
