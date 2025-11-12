@@ -479,86 +479,112 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const getFinalVoteCounts = useCallback(async () => {
-    let allCandidates: Candidate[] = [];
-    let start = 0;
-    const BATCH_SIZE = 1000;
+        let allCandidates: Candidate[] = [];
+        let start = 0;
+        const BATCH_SIZE = 1000;
 
-    while (true) {
-        const { data, error } = await supabase
-            .from('candidates')
-            .select('*')
-            .range(start, start + BATCH_SIZE - 1);
+        while (true) {
+            const { data, error } = await supabase
+                .from('candidates')
+                .select('*')
+                .range(start, start + BATCH_SIZE - 1);
 
-        if (error || !data || data.length === 0) break;
-        allCandidates.push(...data);
-        start += BATCH_SIZE;
-    }
+            if (error || !data || data.length === 0) break;
+            allCandidates.push(...data);
+            start += BATCH_SIZE;
+        }
 
-    if (allCandidates.length === 0) {
-        return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
-    }
+        if (allCandidates.length === 0) {
+            return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
+        }
 
-    const candidateIdMap = new Map<string, string>();
-    allCandidates.forEach(c => {
-        const key = `${c.position}_${c.name}`;
-        candidateIdMap.set(key, c.id);
-    });
-
-    const voteCounts = new Map<string, number>(
-        allCandidates.map(c => [c.id, 0])
-    );
-
-    start = 0;
-    while (true) {
-        const { data, error } = await supabase
-            .from('votes')
-            .select('candidate_id')
-            .range(start, start + BATCH_SIZE - 1);
-
-        if (error || !data || data.length === 0) break;
-
-        data.forEach(vote => {
-            if (vote.candidate_id) {
-                const id = vote.candidate_id as string;
-                voteCounts.set(id, (voteCounts.get(id) || 0) + 1);
-            }
+        const candidateIdMap = new Map<string, string>();
+        allCandidates.forEach(c => {
+            const key = `${c.position}_${c.name}`;
+            candidateIdMap.set(key, c.id);
         });
-        start += BATCH_SIZE;
-    }
 
-    const { data: physicalVotes } = await supabase
-        .from('physical_votes')
-        .select('votes');
+        const voteCounts = new Map<string, number>(
+            allCandidates.map(c => [c.id, 0])
+        );
 
-    physicalVotes?.forEach(pVote => {
-        if (pVote.votes) {
-            try {
-                const voteData: any = typeof pVote.votes === 'string'
-                    ? JSON.parse(pVote.votes)
-                    : pVote.votes;
+        // 1. Identify all registration numbers that have already voted online.
+        const { data: onlineVoters } = await supabase
+            .from('voters')
+            .select('id, registration_number')
+            .eq('has_voted', true);
 
-                for (const position in voteData) {
-                    const candidateName = voteData[position];
-                    const key = `${position}_${candidateName}`;
-                    const candidateId = candidateIdMap.get(key);
-                    if (candidateId) {
-                        voteCounts.set(candidateId, (voteCounts.get(candidateId) || 0) + 1);
+        const votedRegistrationNumbers = new Set<string>(
+            onlineVoters?.map(v => v.registration_number).filter(Boolean) as string[]
+        );
+        const onlineVoterIds = onlineVoters?.map(v => v.id) || [];
+
+        // 2. Tally all online votes from the 'votes' table for those confirmed voters.
+        if (onlineVoterIds.length > 0) {
+            start = 0;
+            while (true) {
+                const { data, error } = await supabase
+                    .from('votes')
+                    .select('candidate_id')
+                    .in('voter_id', onlineVoterIds)
+                    .range(start, start + BATCH_SIZE - 1);
+
+                if (error || !data || data.length === 0) break;
+
+                data.forEach(vote => {
+                    if (vote.candidate_id) {
+                        const id = vote.candidate_id as string;
+                        voteCounts.set(id, (voteCounts.get(id) || 0) + 1);
                     }
-                }
-            } catch (e) {
-                console.error('Error parsing physical vote:', e);
+                });
+                start += BATCH_SIZE;
             }
         }
-    });
+        
+        // 3. Tally physical votes using registration number, preventing double-voting.
+        const { data: physicalVotes } = await supabase
+            .from('physical_votes')
+            .select('votes, registration_number');
 
-    const totalVotes = Array.from(voteCounts.values()).reduce((sum, count) => sum + count, 0);
+        physicalVotes?.forEach(pVote => {
+            if (pVote.votes && pVote.registration_number) {
+                // If the registration number has already been used (online or in a previous physical vote), skip it.
+                if (votedRegistrationNumbers.has(pVote.registration_number)) {
+                    console.warn(`Duplicate vote attempt detected for registration number: ${pVote.registration_number}. Vote ignored.`);
+                    return; 
+                }
 
-    return {
-        candidates: allCandidates,
-        voteCounts,
-        totalVotes,
-    };
-}, []);
+                try {
+                    const voteData: any = typeof pVote.votes === 'string'
+                        ? JSON.parse(pVote.votes)
+                        : pVote.votes;
+
+                    for (const position in voteData) {
+                        const candidateName = voteData[position];
+                        const key = `${position}_${candidateName}`;
+                        const candidateId = candidateIdMap.get(key);
+                        if (candidateId) {
+                            voteCounts.set(candidateId, (voteCounts.get(candidateId) || 0) + 1);
+                        }
+                    }
+                    
+                    // Mark this registration number as 'voted' to prevent duplicate physical votes within this tally.
+                    votedRegistrationNumbers.add(pVote.registration_number);
+
+                } catch (e) {
+                    console.error('Error parsing physical vote:', e);
+                }
+            }
+        });
+
+        const totalVotes = Array.from(voteCounts.values()).reduce((sum, count) => sum + count, 0);
+
+        return {
+            candidates: allCandidates,
+            voteCounts,
+            totalVotes,
+        };
+    }, []);
 
     const fetchResults = useCallback(async () => {
         const { candidates, voteCounts } = await getFinalVoteCounts();
@@ -1229,8 +1255,6 @@ const AdminPortal: React.FC = () => {
         return true;
     })
     .filter(voter => 
-        voter.username.toLowerCase().includes(voterSearchTerm.toLowerCase()) ||
-        (voter.full_name && voter.full_name.toLowerCase().includes(voterSearchTerm.toLowerCase())) ||
         (voter.registration_number && voter.registration_number.toLowerCase().includes(voterSearchTerm.toLowerCase()))
     )
     .sort((a, b) => {
@@ -1240,7 +1264,7 @@ const AdminPortal: React.FC = () => {
             const typeB = b.voter_type || 'online';
             comparison = typeA.localeCompare(typeB);
         } else {
-            const key = voterSortKey as 'username' | 'created_at' | 'has_voted';
+            const key = voterSortKey as 'created_at' | 'has_voted';
             const valA = a[key];
             const valB = b[key];
 
@@ -1464,7 +1488,7 @@ const AdminPortal: React.FC = () => {
                            <div className="relative">
                                <input
                                    type="text"
-                                   placeholder="Search by name, username, reg number..."
+                                   placeholder="Search by registration number..."
                                    value={voterSearchTerm}
                                    onChange={e => setVoterSearchTerm(e.target.value)}
                                    className="w-full p-3 pl-10 border rounded-lg"
@@ -1493,7 +1517,6 @@ const AdminPortal: React.FC = () => {
                                        className="p-2 border rounded-lg text-sm bg-white"
                                    >
                                        <option value="created_at">Date Added</option>
-                                       <option value="username">Username</option>
                                        <option value="has_voted">Vote Status</option>
                                        <option value="voter_type">Voter Type</option>
                                    </select>
@@ -1517,10 +1540,9 @@ const AdminPortal: React.FC = () => {
                                                 <span className="font-mono text-gray-500 w-8 text-right pt-0.5 pr-2 flex-shrink-0">{voterNumber}.</span>
                                                 <div className="flex-grow">
                                                     <div className="flex items-center gap-2 mb-1">
-                                                        <p className="font-semibold">{v.username}</p>
+                                                        <p className="font-semibold">{v.registration_number}</p>
                                                         <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${labelColorClasses}`}>{voterTypeLabel}</span>
                                                     </div>
-                                                    {v.full_name && <p className="text-sm text-gray-500">{v.full_name} ({v.registration_number})</p>}
                                                     {v.created_at && <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><i className="far fa-clock"></i>{new Date(v.created_at).toLocaleString()}</p>}
                                                 </div>
                                             </div>
@@ -1786,8 +1808,6 @@ const AdminPortal: React.FC = () => {
                         return true;
                     })
                     .filter(s => 
-                        s.username.toLowerCase().includes(sessionSearch.toLowerCase()) ||
-                        (s.full_name && s.full_name.toLowerCase().includes(sessionSearch.toLowerCase())) ||
                         (s.registration_number && s.registration_number.toLowerCase().includes(sessionSearch.toLowerCase()))
                     );
             
@@ -1811,8 +1831,7 @@ const AdminPortal: React.FC = () => {
                                                         const isPhysical = voter.voter_type === 'physical';
                                                         return (
                                                             <div key={voter.id} className="bg-white p-3 rounded shadow-sm border">
-                                                                <p className="font-semibold">{voter.username}</p>
-                                                                <p className="text-sm text-gray-600">{voter.full_name}</p>
+                                                                <p className="font-semibold">{voter.registration_number}</p>
                                                                 <div className="flex items-center justify-between mt-2 text-xs">
                                                                     <span className={`font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-800`}>{isPhysical ? 'Physical' : 'Online'}</span>
                                                                     <span className={`font-semibold ${voter.has_voted ? 'text-green-600' : 'text-yellow-600'}`}>{voter.has_voted ? 'Voted' : 'Pending'}</span>
@@ -1842,7 +1861,7 @@ const AdminPortal: React.FC = () => {
                                    <div className="relative">
                                        <input
                                            type="text"
-                                           placeholder="Search by name, username, reg number..."
+                                           placeholder="Search by registration number..."
                                            value={sessionSearch}
                                            onChange={e => setSessionSearch(e.target.value)}
                                            className="w-full p-3 pl-10 border rounded-lg"
@@ -1874,8 +1893,7 @@ const AdminPortal: React.FC = () => {
                                                 return (
                                                     <tr key={voter.id} className={`${isFastVote ? 'bg-red-50' : ''}`}>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div className="text-sm font-medium text-gray-900">{voter.full_name || voter.username}</div>
-                                                            <div className="text-sm text-gray-500">{voter.registration_number || voter.username}</div>
+                                                            <div className="text-sm font-medium text-gray-900">{voter.registration_number}</div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800`}>
