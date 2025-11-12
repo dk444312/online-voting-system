@@ -4,11 +4,9 @@ import { supabase } from '../services/supabaseClient';
 
 // --- Configuration ---
 const IP_REGISTRATION_LIMIT = 1;
-const SUPABASE_FUNCTION_URL = 'https://ycjhhdhalisencahifsq.supabase.co/functions/v1/send-otp';
 
 // --- Types ---
 interface FormData {
-    email: string;
     registrationNumber: string;
     fullName: string;
     username: string;
@@ -85,9 +83,8 @@ const FormInput: React.FC<{
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     type?: string;
     required?: boolean;
-    maxLength?: number;
     children?: React.ReactNode;
-}> = ({ id, name, label, value, onChange, type = "text", required = true, maxLength, children }) => (
+}> = ({ id, name, label, value, onChange, type = "text", required = true, children }) => (
     <div className="relative">
         <input
             id={id}
@@ -95,7 +92,6 @@ const FormInput: React.FC<{
             type={type}
             value={value}
             onChange={onChange}
-            maxLength={maxLength}
             className="block px-3.5 pb-2.5 pt-4 w-full text-sm text-gray-900 bg-transparent rounded-lg border-2 border-gray-300 appearance-none focus:outline-none focus:ring-0 focus:border-black peer"
             placeholder=" "
             required={required}
@@ -109,19 +105,14 @@ const FormInput: React.FC<{
 
 // --- Main Component ---
 const VoterRegistration: React.FC = () => {
-    const [step, setStep] = useState<'email' | 'verify' | 'verifyReg' | 'create'>('email');
+    const [step, setStep] = useState<'verify' | 'create'>('verify');
     const [formData, setFormData] = useState<FormData>({
-        email: '',
         registrationNumber: '',
         fullName: '',
         username: '',
         password: '',
         confirmPassword: '',
     });
-    const [otp, setOtp] = useState('');
-    const [otpLoading, setOtpLoading] = useState(false);
-    const [otpError, setOtpError] = useState('');
-    const [otpTimer, setOtpTimer] = useState(0);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [clientIP, setClientIP] = useState<string | null>(null);
@@ -134,11 +125,6 @@ const VoterRegistration: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [credentialsDownloaded, setCredentialsDownloaded] = useState(false);
-
-    // --- Helpers ---
-    const isValidEmail = () => {
-        return formData.email.toLowerCase().endsWith('@cunima.ac.mw') && formData.email.includes('@');
-    };
 
     // --- Effects ---
     useEffect(() => {
@@ -192,80 +178,9 @@ const VoterRegistration: React.FC = () => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
         setMessage(null);
-        setOtpError('');
     };
 
-    const handleSendOtp = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const email = formData.email.trim().toLowerCase();
-        if (!isValidEmail()) {
-            setOtpError('Only @cunima.ac.mw emails are allowed.');
-            return;
-        }
-
-        setOtpLoading(true);
-        setOtpError('');
-
-        try {
-            const res = await fetch(SUPABASE_FUNCTION_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, ip: clientIP }),
-            });
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to send code');
-
-            setOtpTimer(60);
-            const timer = setInterval(() => {
-                setOtpTimer(t => {
-                    if (t <= 1) {
-                        clearInterval(timer);
-                        return 0;
-                    }
-                    return t - 1;
-                });
-            }, 1000);
-
-            setStep('verify');
-        } catch (err: any) {
-            setOtpError(err.message || 'Failed to send code. Check internet or try again.');
-        } finally {
-            setOtpLoading(false);
-        }
-    };
-
-    const handleVerifyOtp = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (otp.length !== 6) return;
-
-        setOtpLoading(true);
-        try {
-            const { data, error } = await supabase
-                .from('email_verifications')
-                .select('code, expires_at, used')
-                .eq('email', formData.email.toLowerCase())
-                .single();
-
-            if (error || !data) throw new Error('Invalid or expired code.');
-            if (data.used) throw new Error('This code has already been used.');
-            if (new Date(data.expires_at) < new Date()) throw new Error('Code has expired.');
-            if (data.code !== otp) throw new Error('Incorrect code.');
-
-            await supabase
-                .from('email_verifications')
-                .update({ used: true })
-                .eq('email', formData.email.toLowerCase());
-
-            setStep('verifyReg');
-        } catch (err: any) {
-            setMessage({ type: 'error', text: err.message });
-        } finally {
-            setOtpLoading(false);
-        }
-    };
-
-    const handleVerifyRegistration = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setMessage(null);
         if (!isRegistrationOpen || !clientIP) return;
@@ -274,13 +189,16 @@ const VoterRegistration: React.FC = () => {
         const { registrationNumber, fullName } = formData;
 
         try {
+            // Check 1: Already voted or exists
             const { data: voterData } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
-            if (voterData?.has_voted) throw new Error("Already voted.");
-            if (voterData) throw new Error("Account already exists. Please log in.");
+            if (voterData?.has_voted) throw new Error("This registration number has already voted.");
+            if (voterData) throw new Error("An account already exists. Please log in.");
 
+            // Check 2: Master list
             const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
             if (!regData) throw new Error("Invalid registration number or name.");
 
+            // Check 3: IP limit
             const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
                 throw new Error(`Max ${IP_REGISTRATION_LIMIT} registration(s) per network.`);
@@ -390,11 +308,9 @@ const VoterRegistration: React.FC = () => {
                     <div>
                         {/* Progress Bar */}
                         <div className="flex justify-between items-center mb-8 text-sm font-medium">
-                            <span className={['email', 'verify', 'verifyReg', 'create'].includes(step) && step === 'email' ? 'text-black font-bold' : 'text-gray-500'}>1. Email</span>
-                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
-                            <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>2. Verify Code</span>
-                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
-                            <span className={step === 'verifyReg' || step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>3. Register</span>
+                            <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>1. Verify</span>
+                            <div className="flex-1 h-px bg-gray-200 mx-4"></div>
+                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>2. Create Account</span>
                         </div>
 
                         {message && (
@@ -403,70 +319,25 @@ const VoterRegistration: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Step 1: Email */}
-                        {step === 'email' && (
-                            <form onSubmit={handleSendOtp} className="space-y-6">
-                                <div>
-                                    <FormInput id="email" name="email" label="School Email" value={formData.email} onChange={handleChange} type="email" />
-                                    <p className="text-xs text-gray-500 mt-1">Must end with <strong>@cunima.ac.mw</strong></p>
-                                    {formData.email && !isValidEmail() && (
-                                        <p className="text-red-600 text-xs mt-1">Use your CUNIMA email.</p>
-                                    )}
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={otpLoading || otpTimer > 0 || !isValidEmail()}
-                                    className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 transition-all flex items-center justify-center"
-                                >
-                                    {otpLoading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Send Code'}
-                                </button>
-                                {otpError && <p className="text-red-600 text-sm text-center">{otpError}</p>}
-                            </form>
-                        )}
-
-                        {/* Step 2: Verify OTP */}
+                        {/* Step 1: Verify Registration */}
                         {step === 'verify' && (
-                            <form onSubmit={handleVerifyOtp} className="space-y-6">
-                                <div className="text-center mb-4">
-                                    <p className="text-sm text-gray-600">Code sent to <strong>{formData.email}</strong></p>
-                                </div>
-                                <FormInput id="otp" name="otp" label="6-Digit Code" value={otp} onChange={e => setOtp(e.target.value)} maxLength={6} />
-                                <div className="flex gap-3">
-                                    <button type="button" onClick={() => { setStep('email'); setOtp(''); }} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
-                                    <button type="submit" disabled={otpLoading || otp.length !== 6} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
-                                        {otpLoading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify'}
-                                    </button>
-                                </div>
-                                <p className="text-center text-xs text-gray-500">
-                                    Didn't receive? <button type="button" onClick={handleSendOtp} disabled={otpTimer > 0} className="text-black underline disabled:text-gray-400">
-                                        Resend {otpTimer > 0 && `(${otpTimer}s)`}
-                                    </button>
-                                </p>
-                            </form>
-                        )}
-
-                        {/* Step 3: Verify Registration Number */}
-                        {step === 'verifyReg' && (
-                            <form onSubmit={handleVerifyRegistration} className="space-y-6">
+                            <form onSubmit={handleVerify} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
                                 <FormInput id="fullName" name="fullName" label="Full Name (as in SIMS)" value={formData.fullName} onChange={handleChange} />
-                                <div className="flex gap-3">
-                                    <button type="button" onClick={() => setStep('verify')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
-                                    <button type="submit" disabled={loading} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
-                                        {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify'}
-                                    </button>
-                                </div>
+                                <button type="submit" disabled={loading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
+                                    {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
+                                </button>
                             </form>
                         )}
 
-                        {/* Step 4: Create Account */}
+                        {/* Step 2: Create Account */}
                         {step === 'create' && (
                             <form onSubmit={handleRegister} className="space-y-6">
                                 <div className="p-4 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg text-sm">
                                     <p>Verified: <span className="font-bold">{formData.fullName}</span></p>
                                 </div>
-                                <FormInput id="username" name="username" label="Username" value={formData.username} onChange={handleChange} />
-                                <FormInput id="password" name="password" label="Password (min 6)" value={formData.password} onChange={handleChange} type={showPassword ? 'text' : 'password'}>
+                                <FormInput id="username" name="username" label="Create Username" value={formData.username} onChange={handleChange} />
+                                <FormInput id="password" name="password" label="Create Password (min 6)" value={formData.password} onChange={handleChange} type={showPassword ? 'text' : 'password'}>
                                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-gray-500 hover:text-black">
                                         {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
                                     </button>
@@ -483,7 +354,7 @@ const VoterRegistration: React.FC = () => {
                                     </label>
                                 </div>
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => setStep('verifyReg')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
+                                    <button type="button" onClick={() => setStep('verify')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
                                     <button type="submit" disabled={loading || !agreedToTerms} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                         {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Register'}
                                     </button>
