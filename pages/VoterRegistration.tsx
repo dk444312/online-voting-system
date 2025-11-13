@@ -116,7 +116,7 @@ const VoterRegistration: React.FC = () => {
         username: '',
         password: '',
         confirmPassword: '',
-        passKey: '', // Initialize new state field
+        passKey: '', 
     });
 
     const [loading, setLoading] = useState(false);
@@ -197,21 +197,21 @@ const VoterRegistration: React.FC = () => {
         const { registrationNumber, fullName, passKey } = formData;
 
         try {
-            // --- 1. Pass Key Validation (NEW LOGIC) ---
+            // --- 1. Pass Key Validation (Retained internal logic) ---
             const keyPrefix = passKey.substring(0, 1);
             const keyNumber = parseInt(passKey.substring(1), 10);
             
             // Basic format check
             if (keyPrefix !== 'A' || isNaN(keyNumber)) {
-                throw new Error("Invalid Pass Key format. Must start with 'A' followed by numbers.");
+                throw new Error("Invalid Pass Key format. Please check your key.");
             }
             
             // Range check (A1001 to A13000)
             if (keyNumber < 1001 || keyNumber > 13000) {
-                throw new Error("Invalid Pass Key. Must be between A1001 and A13000.");
+                throw new Error("Pass Key is invalid. Please check your key.");
             }
             
-            // --- 2. Check Voter Existence and IP Limit (Existing Logic) ---
+            // --- 2. Check Voter Existence and IP Limit ---
             const { data: voterData } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
             if (voterData?.has_voted) throw new Error("Already voted.");
             if (voterData) throw new Error("Account exists. Please log in.");
@@ -221,10 +221,7 @@ const VoterRegistration: React.FC = () => {
                 throw new Error(`Max ${IP_REGISTRATION_LIMIT} registration(s) per network.`);
             }
             
-            // --- 3. Verify Registration Number and Name (Existing Logic) ---
-            // NOTE: A more secure system would check the Pass Key against a 'pass_keys' table in Supabase
-            // and mark it as 'used' here to prevent reuse. For now, we rely only on the range check and 
-            // the existing registration table verification.
+            // --- 3. Verify Registration Number and Name ---
             const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
             if (!regData) throw new Error("Invalid registration number or name.");
 
@@ -252,11 +249,10 @@ const VoterRegistration: React.FC = () => {
             const { data: existingUser } = await supabase.from('voters').select('id').eq('username', formData.username.trim()).maybeSingle();
             if (existingUser) throw new Error('Username taken.');
 
-            // IP check redundancy is okay here for safety, though it was done in the previous step
             const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) throw new Error('IP limit reached.');
 
-            // Final Insertion - Pass Key is not stored in 'voters' table here, but Registration is.
+            // Final Insertion
             const { error } = await supabase.from('voters').insert([{
                 registration_number: formData.registrationNumber.trim(),
                 full_name: formData.fullName.trim(),
@@ -265,7 +261,6 @@ const VoterRegistration: React.FC = () => {
                 has_voted: false,
                 registration_ip: clientIP,
                 email: 'none_provided@local.host', 
-                // Consider adding a 'pass_key_used' field to the voters table if you want to record the key used
             }]);
             if (error) throw error;
 
@@ -355,10 +350,8 @@ const VoterRegistration: React.FC = () => {
                             <form onSubmit={handleInitialVerification} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
                                 <FormInput id="fullName" name="fullName" label="Full Name (as in SIMS)" value={formData.fullName} onChange={handleChange} />
-                                <FormInput id="passKey" name="passKey" label="Pass Key (e.g., A1001)" value={formData.passKey} onChange={handleChange} />
-                                <p className="text-xs text-gray-500">
-                                    The Pass Key must be in the range **A1001 to A13000**.
-                                </p>
+                                {/* REMOVED RANGE TEXT FROM UI */}
+                                <FormInput id="passKey" name="passKey" label="Pass Key (e.g., A1001)" value={formData.passKey} onChange={handleChange} /> 
                                 <button type="submit" disabled={loading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                     {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
                                 </button>
