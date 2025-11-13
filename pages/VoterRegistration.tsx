@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 
 // --- Configuration ---
@@ -12,11 +12,14 @@ interface FormData {
     username: string;
     password: string;
     confirmPassword: string;
+    // NEW: Add passKey to FormData
+    passKey: string; 
 }
 
-type Step = 'email' | 'verify' | 'create';
+// Simplified Steps: 'initial' (verification) -> 'create' (account setup)
+type Step = 'initial' | 'create'; 
 
-// --- SVG Icons ---
+// --- SVG Icons (No changes needed here) ---
 const CheckCircleIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-black mx-auto" viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -45,7 +48,7 @@ const EyeClosedIcon = () => (
     </svg>
 );
 
-// --- Reusable Components ---
+// --- Reusable Components (No changes needed here) ---
 const GoogleModal: React.FC<{
     title: string;
     children: React.ReactNode;
@@ -105,17 +108,15 @@ const FormInput: React.FC<{
 
 // --- Main Component ---
 const VoterRegistration: React.FC = () => {
-    const [searchParams] = useSearchParams();
-    const urlToken = searchParams.get('token');
 
-    const [step, setStep] = useState<Step>('email');
-    const [email, setEmail] = useState('');
+    const [step, setStep] = useState<Step>('initial');
     const [formData, setFormData] = useState<FormData>({
         registrationNumber: '',
         fullName: '',
         username: '',
         password: '',
         confirmPassword: '',
+        passKey: '', // Initialize new state field
     });
 
     const [loading, setLoading] = useState(false);
@@ -178,112 +179,59 @@ const VoterRegistration: React.FC = () => {
         fetchRegistrationStatus();
     }, []);
 
-    // --- Verify Email Link ---
-    useEffect(() => {
-        if (!urlToken || step !== 'email') return;
-
-        const verifyToken = async () => {
-            setLoading(true);
-            try {
-                const { data, error } = await supabase
-                    .from('email_verifications')
-                    .select('email, used, expires_at')
-                    .eq('token', urlToken)
-                    .single();
-
-                if (error || !data) throw new Error('Invalid link.');
-                if (data.used) throw new Error('Link already used.');
-                if (new Date(data.expires_at) < new Date()) throw new Error('Link expired.');
-
-                await supabase.from('email_verifications').update({ used: true }).eq('token', urlToken);
-
-                setEmail(data.email);
-                setStep('verify');
-                setMessage({ type: 'success', text: `Email ${data.email} verified! Continue.` });
-            } catch (err: any) {
-                setMessage({ type: 'error', text: err.message });
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        verifyToken();
-    }, [urlToken, step]);
-
     // --- Handlers ---
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        // Automatically convert passKey to uppercase for consistency
+        const processedValue = name === 'passKey' ? value.toUpperCase() : value; 
+        setFormData(prev => ({ ...prev, [name]: processedValue }));
         setMessage(null);
     };
 
-    const handleSendLink = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!email.toLowerCase().endsWith('@cunima.ac.mw')) {
-            setMessage({ type: 'error', text: 'Email must end with @cunima.ac.mw' });
-            return;
-        }
-
-        setLoading(true);
-        setMessage(null);
-
-        try {
-            const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-            const { data: record, error } = await supabase
-                .from('email_verifications')
-                .upsert(
-                    { email: email.toLowerCase(), expires_at: expiresAt.toISOString() },
-                    { onConflict: 'email' }
-                )
-                .select()
-                .single();
-
-            if (error) throw error;
-
-            const res = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-verification-link`,
-                {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ email, token: record.token }),
-                }
-            );
-
-            if (!res.ok) throw new Error('Failed to send link');
-
-            setMessage({ type: 'success', text: 'Verification link sent! Check your email.' });
-        } catch (err: any) {
-            setMessage({ type: 'error', text: err.message || 'Failed to send link.' });
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleInitialVerification = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setMessage(null);
         if (!isRegistrationOpen || !clientIP) return;
 
         setLoading(true);
-        const { registrationNumber, fullName } = formData;
+        const { registrationNumber, fullName, passKey } = formData;
 
         try {
+            // --- 1. Pass Key Validation (NEW LOGIC) ---
+            const keyPrefix = passKey.substring(0, 1);
+            const keyNumber = parseInt(passKey.substring(1), 10);
+            
+            // Basic format check
+            if (keyPrefix !== 'A' || isNaN(keyNumber)) {
+                throw new Error("Invalid Pass Key format. Must start with 'A' followed by numbers.");
+            }
+            
+            // Range check (A1001 to A13000)
+            if (keyNumber < 1001 || keyNumber > 13000) {
+                throw new Error("Invalid Pass Key. Must be between A1001 and A13000.");
+            }
+            
+            // --- 2. Check Voter Existence and IP Limit (Existing Logic) ---
             const { data: voterData } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
             if (voterData?.has_voted) throw new Error("Already voted.");
             if (voterData) throw new Error("Account exists. Please log in.");
-
-            const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
-            if (!regData) throw new Error("Invalid registration number or name.");
 
             const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
                 throw new Error(`Max ${IP_REGISTRATION_LIMIT} registration(s) per network.`);
             }
+            
+            // --- 3. Verify Registration Number and Name (Existing Logic) ---
+            // NOTE: A more secure system would check the Pass Key against a 'pass_keys' table in Supabase
+            // and mark it as 'used' here to prevent reuse. For now, we rely only on the range check and 
+            // the existing registration table verification.
+            const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
+            if (!regData) throw new Error("Invalid registration number or name.");
 
+            
+            // Verification successful -> proceed directly to account creation
             setStep('create');
+            setMessage({ type: 'success', text: 'Verification successful! Create your account.' });
         } catch (error: any) {
             setMessage({ type: 'error', text: error.message || 'Verification failed.' });
         } finally {
@@ -304,9 +252,11 @@ const VoterRegistration: React.FC = () => {
             const { data: existingUser } = await supabase.from('voters').select('id').eq('username', formData.username.trim()).maybeSingle();
             if (existingUser) throw new Error('Username taken.');
 
+            // IP check redundancy is okay here for safety, though it was done in the previous step
             const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) throw new Error('IP limit reached.');
 
+            // Final Insertion - Pass Key is not stored in 'voters' table here, but Registration is.
             const { error } = await supabase.from('voters').insert([{
                 registration_number: formData.registrationNumber.trim(),
                 full_name: formData.fullName.trim(),
@@ -314,7 +264,8 @@ const VoterRegistration: React.FC = () => {
                 password: formData.password,
                 has_voted: false,
                 registration_ip: clientIP,
-                email: email,
+                email: 'none_provided@local.host', 
+                // Consider adding a 'pass_key_used' field to the voters table if you want to record the key used
             }]);
             if (error) throw error;
 
@@ -326,13 +277,12 @@ const VoterRegistration: React.FC = () => {
         }
     };
 
-    // FIXED: Removed double comma
     const handleDownloadCredentials = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const w = 450, h = 250;  // FIXED: was "450,,"
+        const w = 450, h = 250;
         canvas.width = w; canvas.height = h;
 
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
@@ -376,7 +326,7 @@ const VoterRegistration: React.FC = () => {
         <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 font-sans">
             <div className="w-full max-w-md mx-auto bg-white border border-gray-300 rounded-xl shadow-sm p-6 md:p-8">
                 <div className="text-center mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900">Voter Registration</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">Voter Registration 🗳️</h1>
                     <p className="text-gray-500 mt-1">{deadlineMessage}</p>
                     {clientIP && <p className="text-xs text-gray-400 mt-1">IP: {clientIP}</p>}
                 </div>
@@ -389,11 +339,9 @@ const VoterRegistration: React.FC = () => {
                     <div>
                         {/* Progress Bar */}
                         <div className="flex justify-between items-center mb-8 text-xs font-medium">
-                            <span className={step === 'email' ? 'text-black font-bold' : 'text-gray-500'}>1. Email</span>
+                            <span className={step === 'initial' ? 'text-black font-bold' : 'text-gray-500'}>1. Verification</span>
                             <div className="flex-1 h-px bg-gray-200 mx-2"></div>
-                            <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>2. Verify</span>
-                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
-                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>3. Create</span>
+                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>2. Create Account</span>
                         </div>
 
                         {message && (
@@ -402,46 +350,29 @@ const VoterRegistration: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Step 1: Email */}
-                        {step === 'email' && (
-                            <form onSubmit={handleSendLink} className="space-y-6">
-                                <FormInput
-                                    id="email"
-                                    name="email"
-                                    label="CUNIMA Email"
-                                    value={email}
-                                    onChange={(e) => { setEmail(e.target.value); setMessage(null); }}
-                                    type="email"
-                                />
-                                <p className="text-xs text-gray-500">
-                                    Must end with <span className="font-mono">@cunima.ac.mw</span>
-                                </p>
-                                <button
-                                    type="submit"
-                                    disabled={loading || !email.toLowerCase().endsWith('@cunima.ac.mw')}
-                                    className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center"
-                                >
-                                    {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Send Verification Link'}
-                                </button>
-                            </form>
-                        )}
-
-                        {/* Step 2: Verify Registration */}
-                        {step === 'verify' && (
-                            <form onSubmit={handleVerify} className="space-y-6">
+                        {/* Step 1: Initial Verification with Pass Key */}
+                        {step === 'initial' && (
+                            <form onSubmit={handleInitialVerification} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
                                 <FormInput id="fullName" name="fullName" label="Full Name (as in SIMS)" value={formData.fullName} onChange={handleChange} />
+                                <FormInput id="passKey" name="passKey" label="Pass Key (e.g., A1001)" value={formData.passKey} onChange={handleChange} />
+                                <p className="text-xs text-gray-500">
+                                    The Pass Key must be in the range **A1001 to A13000**.
+                                </p>
                                 <button type="submit" disabled={loading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                     {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
                                 </button>
                             </form>
                         )}
 
-                        {/* Step 3: Create Account */}
+                        {/* Step 2: Create Account (No changes needed here) */}
                         {step === 'create' && (
                             <form onSubmit={handleRegister} className="space-y-6">
                                 <div className="p-4 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg text-sm">
-                                    <p>Verified: <span className="font-bold">{formData.fullName}</span></p>
+                                    <p>Verified Student: <span className="font-bold">{formData.fullName}</span></p>
+                                    <p className="text-xs text-gray-600 mt-1">
+                                        You are creating an account for registration number: **{formData.registrationNumber}**
+                                    </p>
                                 </div>
                                 <FormInput id="username" name="username" label="Create Username" value={formData.username} onChange={handleChange} />
                                 <FormInput id="password" name="password" label="Create Password (min 6)" value={formData.password} onChange={handleChange} type={showPassword ? 'text' : 'password'}>
@@ -461,8 +392,8 @@ const VoterRegistration: React.FC = () => {
                                     </label>
                                 </div>
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => setStep('verify')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
-                                    <button type="kunft" disabled={loading || !agreedToTerms} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
+                                    <button type="button" onClick={() => setStep('initial')} className="w-1/3 bg-white text-black font-semibold py-3 px-4 border border-black rounded-lg hover:bg-gray-100">Back</button>
+                                    <button type="submit" disabled={loading || !agreedToTerms} className="w-2/3 bg-black text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                         {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Register'}
                                     </button>
                                 </div>
