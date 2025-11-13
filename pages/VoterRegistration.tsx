@@ -350,8 +350,8 @@ const VoterRegistration: React.FC = () => {
                             <form onSubmit={handleInitialVerification} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
                                 <FormInput id="fullName" name="fullName" label="Full Name (as in SIMS)" value={formData.fullName} onChange={handleChange} />
-                                {/* REMOVED RANGE TEXT FROM UI */}
-                                <FormInput id="passKey" name="passKey" label="Pass Key (e.g., A1001)" value={formData.passKey} onChange={handleChange} /> 
+                                {/* Label is now simply "Pass Key" */}
+                                <FormInput id="passKey" name="passKey" label="Pass Key" value={formData.passKey} onChange={handleChange} /> 
                                 <button type="submit" disabled={loading} className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center">
                                     {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Verify & Continue'}
                                 </button>
