@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 
 // --- Configuration ---
@@ -14,14 +14,7 @@ interface FormData {
     confirmPassword: string;
 }
 
-interface ModalProps {
-    title: string;
-    children: React.ReactNode;
-    onClose: () => void;
-    show: boolean;
-    footer?: React.ReactNode;
-    isLarge?: boolean;
-}
+type Step = 'email' | 'verify' | 'create';
 
 // --- SVG Icons ---
 const CheckCircleIcon = () => (
@@ -53,7 +46,14 @@ const EyeClosedIcon = () => (
 );
 
 // --- Reusable Components ---
-const GoogleModal: React.FC<ModalProps> = ({ title, children, onClose, show, footer, isLarge = false }) => {
+const GoogleModal: React.FC<{
+    title: string;
+    children: React.ReactNode;
+    onClose: () => void;
+    show: boolean;
+    footer?: React.ReactNode;
+    isLarge?: boolean;
+}> = ({ title, children, onClose, show, footer, isLarge = false }) => {
     if (!show) return null;
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={onClose}>
@@ -105,7 +105,11 @@ const FormInput: React.FC<{
 
 // --- Main Component ---
 const VoterRegistration: React.FC = () => {
-    const [step, setStep] = useState<'verify' | 'create'>('verify');
+    const [searchParams] = useSearchParams();
+    const urlToken = searchParams.get('token');
+
+    const [step, setStep] = useState<Step>('email');
+    const [email, setEmail] = useState('');
     const [formData, setFormData] = useState<FormData>({
         registrationNumber: '',
         fullName: '',
@@ -113,6 +117,7 @@ const VoterRegistration: React.FC = () => {
         password: '',
         confirmPassword: '',
     });
+
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [clientIP, setClientIP] = useState<string | null>(null);
@@ -134,8 +139,8 @@ const VoterRegistration: React.FC = () => {
                 const response = await fetch('https://api.ipify.org?format=json');
                 const data = await response.json();
                 setClientIP(data.ip);
-            } catch (error) {
-                setMessage({ type: 'error', text: 'Could not determine your IP address.' });
+            } catch {
+                setMessage({ type: 'error', text: 'Could not determine IP.' });
             } finally {
                 setIpLoading(false);
             }
@@ -164,7 +169,7 @@ const VoterRegistration: React.FC = () => {
                     setDeadlineMessage('Registration is open.');
                 }
             } catch {
-                setDeadlineMessage('Could not verify registration status.');
+                setDeadlineMessage('Could not verify status.');
                 setIsRegistrationOpen(false);
             } finally {
                 setPageLoading(false);
@@ -173,11 +178,88 @@ const VoterRegistration: React.FC = () => {
         fetchRegistrationStatus();
     }, []);
 
+    // --- Verify Email Link ---
+    useEffect(() => {
+        if (!urlToken || step !== 'email') return;
+
+        const verifyToken = async () => {
+            setLoading(true);
+            try {
+                const { data, error } = await supabase
+                    .from('email_verifications')
+                    .select('email, used, expires_at')
+                    .eq('token', urlToken)
+                    .single();
+
+                if (error || !data) throw new Error('Invalid link.');
+                if (data.used) throw new Error('Link already used.');
+                if (new Date(data.expires_at) < new Date()) throw new Error('Link expired.');
+
+                await supabase.from('email_verifications').update({ used: true }).eq('token', urlToken);
+
+                setEmail(data.email);
+                setStep('verify');
+                setMessage({ type: 'success', text: `Email ${data.email} verified! Continue.` });
+            } catch (err: any) {
+                setMessage({ type: 'error', text: err.message });
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        verifyToken();
+    }, [urlToken, step]);
+
     // --- Handlers ---
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
         setMessage(null);
+    };
+
+    const handleSendLink = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!email.toLowerCase().endsWith('@cunima.ac.mw')) {
+            setMessage({ type: 'error', text: 'Email must end with @cunima.ac.mw' });
+            return;
+        }
+
+        setLoading(true);
+        setMessage(null);
+
+        try {
+            const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+            const { data: record, error } = await supabase
+                .from('email_verifications')
+                .upsert(
+                    { email: email.toLowerCase(), expires_at: expiresAt.toISOString() },
+                    { onConflict: 'email' }
+                )
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            const res = await fetch(
+                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-verification-link`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, token: record.token }),
+                }
+            );
+
+            if (!res.ok) throw new Error('Failed to send link');
+
+            setMessage({ type: 'success', text: 'Verification link sent! Check your email.' });
+        } catch (err: any) {
+            setMessage({ type: 'error', text: err.message || 'Failed to send link.' });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -189,16 +271,13 @@ const VoterRegistration: React.FC = () => {
         const { registrationNumber, fullName } = formData;
 
         try {
-            // Check 1: Already voted or exists
             const { data: voterData } = await supabase.from('voters').select('has_voted').eq('registration_number', registrationNumber.trim()).maybeSingle();
-            if (voterData?.has_voted) throw new Error("This registration number has already voted.");
-            if (voterData) throw new Error("An account already exists. Please log in.");
+            if (voterData?.has_voted) throw new Error("Already voted.");
+            if (voterData) throw new Error("Account exists. Please log in.");
 
-            // Check 2: Master list
             const { data: regData } = await supabase.from('registrations').select('id').eq('registration_number', registrationNumber.trim()).ilike('student_name', `%${fullName.trim()}%`).maybeSingle();
             if (!regData) throw new Error("Invalid registration number or name.");
 
-            // Check 3: IP limit
             const { count: ipCount } = await supabase.from('voters').select('id', { count: 'exact' }).eq('registration_ip', clientIP);
             if (ipCount !== null && ipCount >= IP_REGISTRATION_LIMIT) {
                 throw new Error(`Max ${IP_REGISTRATION_LIMIT} registration(s) per network.`);
@@ -235,6 +314,7 @@ const VoterRegistration: React.FC = () => {
                 password: formData.password,
                 has_voted: false,
                 registration_ip: clientIP,
+                email: email,
             }]);
             if (error) throw error;
 
@@ -251,7 +331,7 @@ const VoterRegistration: React.FC = () => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const w = 450, h = 250;
+        const w = 450,, h = 250;
         canvas.width = w; canvas.height = h;
 
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
@@ -307,10 +387,12 @@ const VoterRegistration: React.FC = () => {
                 ) : (
                     <div>
                         {/* Progress Bar */}
-                        <div className="flex justify-between items-center mb-8 text-sm font-medium">
-                            <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>1. Verify</span>
-                            <div className="flex-1 h-px bg-gray-200 mx-4"></div>
-                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>2. Create Account</span>
+                        <div className="flex justify-between items-center mb-8 text-xs font-medium">
+                            <span className={step === 'email' ? 'text-black font-bold' : 'text-gray-500'}>1. Email</span>
+                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
+                            <span className={step === 'verify' ? 'text-black font-bold' : 'text-gray-500'}>2. Verify</span>
+                            <div className="flex-1 h-px bg-gray-200 mx-2"></div>
+                            <span className={step === 'create' ? 'text-black font-bold' : 'text-gray-500'}>3. Create</span>
                         </div>
 
                         {message && (
@@ -319,7 +401,31 @@ const VoterRegistration: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Step 1: Verify Registration */}
+                        {/* Step 1: Email */}
+                        {step === 'email' && (
+                            <form onSubmit={handleSendLink} className="space-y-6">
+                                <FormInput
+                                    id="email"
+                                    name="email"
+                                    label="CUNIMA Email"
+                                    value={email}
+                                    onChange={(e) => { setEmail(e.target.value); setMessage(null); }}
+                                    type="email"
+                                />
+                                <p className="text-xs text-gray-500">
+                                    Must end with <span className="font-mono">@cunima.ac.mw</span>
+                                </p>
+                                <button
+                                    type="submit"
+                                    disabled={loading || !email.toLowerCase().endsWith('@cunima.ac.mw')}
+                                    className="w-full bg-black text-white font-semibold py-3 px-5 rounded-lg hover:bg-gray-800 disabled:bg-gray-400 flex items-center justify-center"
+                                >
+                                    {loading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : 'Send Verification Link'}
+                                </button>
+                            </form>
+                        )}
+
+                        {/* Step 2: Verify Registration */}
                         {step === 'verify' && (
                             <form onSubmit={handleVerify} className="space-y-6">
                                 <FormInput id="registrationNumber" name="registrationNumber" label="Registration Number" value={formData.registrationNumber} onChange={handleChange} />
@@ -330,7 +436,7 @@ const VoterRegistration: React.FC = () => {
                             </form>
                         )}
 
-                        {/* Step 2: Create Account */}
+                        {/* Step 3: Create Account */}
                         {step === 'create' && (
                             <form onSubmit={handleRegister} className="space-y-6">
                                 <div className="p-4 bg-gray-50 border-l-4 border-gray-400 rounded-r-lg text-sm">
