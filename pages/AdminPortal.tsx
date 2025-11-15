@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { supabase } from '../services/supabaseClient';
-import type { Director, Candidate, Voter, Admin, Registration } from '../types';
+import type { Director, Candidate, Voter, Admin } from '../types';
 
 const DEFAULT_CANDIDATE_PHOTO_URL = `data:image/svg+xml;charset=UTF-8,%3csvg width='150' height='150' viewBox='0 0 150 150' fill='none' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='150' height='150' rx='12' fill='%23F1F5F9'/%3e%3cpath d='M75 92.5C85.2269 92.5 93.5 84.2269 93.5 74C93.5 63.7731 85.2269 55.5 75 55.5C64.7731 55.5 56.5 63.7731 56.5 74C56.5 84.2269 64.7731 92.5 75 92.5Z' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3cpath d='M66.625 99.6875L62.5 125L75 112.5L87.5 125L83.375 99.625' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e`;
 
@@ -12,6 +12,15 @@ interface Position {
     id: number;
     name: string;
 }
+
+interface Registration {
+    id: number;
+    registration_number: string;
+    student_name: string;
+    created_at: string;
+    verification_code?: string | null;
+}
+
 
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
@@ -223,64 +232,18 @@ const StatCard: React.FC<{ icon: string; title: string; value: string | number; 
 
 // --- NEW STATISTICS COMPONENTS ---
 
-const rankColors: { [key: number]: string } = {
-    1: 'border-amber-400 text-amber-400',
-    2: 'border-slate-400 text-slate-400',
-    3: 'border-amber-600 text-amber-600',
-};
-
-const CandidateStatCard: React.FC<{ candidate: any; isUpdated: boolean; positionTotalVotes: number; }> = ({ candidate, isUpdated, positionTotalVotes }) => {
-    const { rank, isTied, votes, name, photo_url } = candidate;
-    const rankClass = rankColors[rank] || 'border-slate-600 text-slate-500';
-    const percentage = positionTotalVotes > 0 ? (votes / positionTotalVotes) * 100 : 0;
-
+const PositionVoteIndicator: React.FC<{ positionResult: any; isUpdated: boolean; }> = ({ positionResult, isUpdated }) => {
     return (
         <div className={`
-            bg-slate-800/50 border-2 rounded-2xl p-4 flex items-center gap-4 transition-all duration-500 relative overflow-hidden
-            ${isUpdated ? 'border-white shadow-lg shadow-white/20 animate-glow' : rank === 1 ? 'border-amber-400/50' : 'border-slate-700'}
-            ${isTied ? 'shadow-lg shadow-slate-500/40' : ''}
+            bg-slate-800 p-6 rounded-2xl border border-slate-700 transition-all duration-500 relative overflow-hidden
+            ${isUpdated ? 'border-white shadow-lg shadow-white/20 animate-glow' : 'border-slate-700'}
         `}>
-            {isUpdated && <div className="absolute top-2 right-2 text-xs font-bold text-white animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
+            {isUpdated && <div className="absolute top-2 right-2 text-sm font-bold text-white animate-fade-in-out opacity-0" style={{animationDuration: '3s', animationFillMode: 'forwards'}}>+ VOTE</div>}
             
-            {isTied && (
-                <div className="absolute top-2 left-3 text-xs font-bold text-slate-300 bg-slate-900/50 px-2 py-0.5 rounded-full">
-                    VOTES TIED
-                </div>
-            )}
-
-            <div className={`w-12 h-12 text-3xl font-bold flex items-center justify-center flex-shrink-0 ${rankClass}`}>
-                {rank === 1 ? <i className="fas fa-trophy"></i> : rank}
-            </div>
-            <img src={photo_url || DEFAULT_CANDIDATE_PHOTO_URL} alt={name} className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"/>
-            <div className="flex-grow">
-                <p className="font-bold text-lg text-white">{name}</p>
-                <div className="w-full bg-slate-700 rounded-full h-3 mt-1 overflow-hidden">
-                    <div className="bg-slate-400 h-3 rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
-                </div>
-            </div>
-            <div className={`text-right flex-shrink-0 w-24 ml-2 transition-transform duration-500 ${isUpdated ? 'scale-110' : ''}`}>
-                <p className={`text-4xl font-black ${isUpdated ? 'text-white animate-number-bump' : 'text-white'}`}>{votes}</p>
-                <p className="text-slate-400 font-semibold">{percentage.toFixed(1)}%</p>
-            </div>
-        </div>
-    );
-};
-
-
-const PositionRaceView: React.FC<{ positionResult: any; updatedCandidates: Set<string>; }> = ({ positionResult, updatedCandidates }) => {
-    return (
-        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
             <h3 className="text-3xl font-bold text-white mb-1">{positionResult.position}</h3>
-            <p className="text-slate-400 mb-6">Total Votes: <span className="font-bold text-slate-300">{positionResult.totalVotes}</span></p>
-            <div className="space-y-4">
-                {positionResult.candidates.map((c: any) => (
-                    <CandidateStatCard 
-                        key={c.id} 
-                        candidate={c}
-                        isUpdated={updatedCandidates.has(c.id)}
-                        positionTotalVotes={positionResult.totalVotes}
-                    />
-                ))}
+            <div className={`flex items-baseline gap-3 transition-transform duration-500 ${isUpdated ? 'scale-110' : ''}`}>
+                 <p className="text-slate-400">Total Votes:</p>
+                 <p className={`text-5xl font-black ${isUpdated ? 'text-white animate-number-bump' : 'text-white'}`}>{positionResult.totalVotes}</p>
             </div>
         </div>
     );
@@ -356,7 +319,7 @@ const AdminPortal: React.FC = () => {
     const [isLive, setIsLive] = useState(false);
     const [newVoteToast, setNewVoteToast] = useState<string | null>(null);
     const [flashVotesCard, setFlashVotesCard] = useState(false);
-    const [updatedCandidates, setUpdatedCandidates] = useState<Set<string>>(new Set());
+    const [updatedPositions, setUpdatedPositions] = useState<Set<string>>(new Set());
     const prevResultsRef = useRef<any[]>();
 
 
@@ -417,12 +380,14 @@ const AdminPortal: React.FC = () => {
     }, []);
     
     const fetchCandidates = useCallback(async () => {
-        const { data } = await supabase.from('candidates').select('*').order('created_at');
+        // FIX: For consistency, explicitly add ordering options.
+        const { data } = await supabase.from('candidates').select('*').order('created_at', { ascending: true });
         setCandidates(data || []);
     }, []);
 
     const fetchPositions = useCallback(async () => {
-        const { data } = await supabase.from('positions').select('*').order('name');
+        // FIX: For consistency, explicitly add ordering options.
+        const { data } = await supabase.from('positions').select('*').order('name', { ascending: true });
         setPositions(data || []);
     }, []);
 
@@ -474,7 +439,8 @@ const AdminPortal: React.FC = () => {
     setRegistrations(allRegistrations);
 }, []);
     const fetchAdmins = useCallback(async () => {
-        const { data } = await supabase.from('directors').select('*').order('created_at');
+        // FIX: Explicitly add ordering options to resolve potential API inconsistencies.
+        const { data } = await supabase.from('directors').select('*').order('created_at', { ascending: true });
         setAdmins(data || []);
     }, []);
 
@@ -495,10 +461,13 @@ const AdminPortal: React.FC = () => {
     }
 
     if (allCandidates.length === 0) {
-        return { candidates: [], voteCounts: new Map(), totalVotes: 0 };
+        // Fix: The Map constructor was throwing an error, likely due to a toolchain issue.
+        // Passing an empty array to the constructor is a safe way to create an empty map.
+        return { candidates: [], voteCounts: new Map<string, number>([]), totalVotes: 0 };
     }
 
-    const candidateIdMap = new Map<string, string>();
+    // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
+    const candidateIdMap = new Map<string, string>([]);
     allCandidates.forEach(c => {
         const key = `${c.position}_${c.name}`;
         candidateIdMap.set(key, c.id);
@@ -642,7 +611,8 @@ const AdminPortal: React.FC = () => {
 }, []);
 
     const fetchSecurityData = useCallback(async () => {
-        const { data: votersData, error: votersError } = await supabase.from('voters').select('*').order('created_at');
+        // FIX: For consistency, explicitly add ordering options and sort by descending to match client-side logic.
+        const { data: votersData, error: votersError } = await supabase.from('voters').select('*').order('created_at', { ascending: false });
         const { data: votesData, error: votesError } = await supabase.from('votes').select('voter_id, created_at');
 
         if (votersError || votesError) {
@@ -650,7 +620,8 @@ const AdminPortal: React.FC = () => {
             return;
         }
 
-        const registrationMap = new Map<string, Voter[]>();
+        // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
+        const registrationMap = new Map<string, Voter[]>([]);
         votersData?.forEach(voter => {
             if (voter.registration_number) {
                 if (!registrationMap.has(voter.registration_number)) {
@@ -664,7 +635,8 @@ const AdminPortal: React.FC = () => {
             .filter(([_, votersList]) => votersList.length > 1)
             .map(([registration_number, voters]) => ({ registration_number, voters }));
 
-        const voteTimeMap = new Map<string, string>();
+        // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
+        const voteTimeMap = new Map<string, string>([]);
         votesData?.forEach(vote => {
             voteTimeMap.set(vote.voter_id, vote.created_at);
         });
@@ -682,7 +654,7 @@ const AdminPortal: React.FC = () => {
                 vote_time: voteTime,
                 duration: duration,
             };
-        }).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        });
 
         setSecurityData({ duplicateRegistrations, sessionTimings: sessionTimings || [] });
     }, []);
@@ -739,26 +711,23 @@ const AdminPortal: React.FC = () => {
     useEffect(() => {
         if (view === 'STATISTICS' && prevResultsRef.current && prevResultsRef.current.length > 0) {
             const updates = new Set<string>();
-            const prevVoteMap = new Map<string, number>();
+            // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
+            const prevPositionVoteMap = new Map<string, number>([]);
             prevResultsRef.current.forEach(pos => {
-                pos.candidates.forEach((c: any) => {
-                    prevVoteMap.set(c.id, c.votes);
-                });
+                prevPositionVoteMap.set(pos.position, pos.totalVotes);
             });
 
             results.forEach(pos => {
-                pos.candidates.forEach((c: any) => {
-                    const prevVotes = prevVoteMap.get(c.id);
-                    if (prevVotes !== undefined && c.votes > prevVotes) {
-                        updates.add(c.id);
-                    }
-                });
+                const prevVotes = prevPositionVoteMap.get(pos.position);
+                if (prevVotes !== undefined && pos.totalVotes > prevVotes) {
+                    updates.add(pos.position);
+                }
             });
 
             if (updates.size > 0) {
-                setUpdatedCandidates(updates);
+                setUpdatedPositions(updates);
                 const timer = setTimeout(() => {
-                    setUpdatedCandidates(new Set());
+                    setUpdatedPositions(new Set());
                 }, 3000);
                 return () => clearTimeout(timer);
             }
@@ -837,6 +806,11 @@ const AdminPortal: React.FC = () => {
     }, [registrationSearchTerm, registrations]);
 
     // --- ACTIONS ---
+
+    const generateCode = () => {
+        return Math.random().toString(36).substring(2, 8).toUpperCase();
+    };
+    
     const handleSetDeadline = async () => {
         setLoading(true);
         setFormMessage(null);
@@ -1026,18 +1000,6 @@ const AdminPortal: React.FC = () => {
         }
     };
 
-    const handleDeleteVoter = async (id: string) => {
-        if (window.confirm("Are you sure you want to delete this voter?")) {
-            const { error } = await supabase.from('voters').delete().eq('id', id);
-            if(error) {
-                alert(`Error: ${error.message}`);
-            } else {
-                fetchVoters();
-                fetchDashboardStats();
-            }
-        }
-    };
-
     const handleAddOrUpdateRegistration = async (e: React.FormEvent) => {
         e.preventDefault();
         if (electionStatus === 'Active') {
@@ -1152,6 +1114,57 @@ const AdminPortal: React.FC = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleGenerateVerificationCode = async (registrationId: number) => {
+        setLoading(true);
+        setFormMessage(null);
+        try {
+            const code = generateCode();
+            const { error } = await supabase
+                .from('registrations')
+                .update({ verification_code: code })
+                .eq('id', registrationId);
+            if (error) throw error;
+            setFormMessage({ type: 'success', text: 'Verification code generated.' });
+            fetchRegistrations();
+        } catch (error: any) {
+            setFormMessage({ type: 'error', text: error.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const handleBulkGenerateCodes = async () => {
+         if (!window.confirm("Generate codes for all students without one? This cannot be undone.")) return;
+         setLoading(true);
+         setFormMessage(null);
+         try {
+            const unassignedRegistrations = registrations.filter(r => !r.verification_code);
+            if (unassignedRegistrations.length === 0) {
+                throw new Error("All students already have a verification code.");
+            }
+
+            // Deduplicate based on the 'id' to prevent the "cannot affect row a second time" error.
+            const uniqueRegistrations = Array.from(new Map(unassignedRegistrations.map(reg => [reg.id, reg])).values());
+
+            const updates = uniqueRegistrations.map(reg => ({
+                id: reg.id,
+                registration_number: reg.registration_number,
+                student_name: reg.student_name,
+                verification_code: generateCode()
+            }));
+
+            const { error } = await supabase.from('registrations').upsert(updates);
+            if (error) throw error;
+
+            setFormMessage({ type: 'success', text: `Generated codes for ${updates.length} students.` });
+            fetchRegistrations();
+         } catch (error: any) {
+             setFormMessage({ type: 'error', text: error.message });
+         } finally {
+             setLoading(false);
+         }
     };
 
     const handleAddAdmin = async (e: React.FormEvent) => {
@@ -1428,7 +1441,8 @@ const AdminPortal: React.FC = () => {
                 const physicalVotersCount = voters.filter(v => v.voter_type === 'physical').length;
                 const onlineVotersCount = voters.length - physicalVotersCount;
 
-                const voterNumberMap = new Map<string, number>();
+                // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
+                const voterNumberMap = new Map<string, number>([]);
                 voters
                     .slice()
                     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -1441,7 +1455,7 @@ const AdminPortal: React.FC = () => {
                        <div className="max-w-xl mx-auto mb-8 p-6 bg-slate-100 rounded-lg border border-slate-200 text-center">
                             <i className="fas fa-info-circle text-slate-500 text-2xl mb-2"></i>
                             <h3 className="text-xl font-semibold mb-2 text-slate-800">Voter Management</h3>
-                            <p className="text-slate-700">Students now register themselves by verifying their registration number. Add, edit, or remove eligible students in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-slate-800 hover:underline">Registrations</button> tab.</p>
+                            <p className="text-slate-700">Voters log in using unique verification codes. Manage eligible students and generate their codes in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-slate-800 hover:underline">Registrations</button> tab. This page lists all students who have successfully logged into the voting portal.</p>
                        </div>
                        <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
                        
@@ -1526,7 +1540,6 @@ const AdminPortal: React.FC = () => {
                                             </div>
                                             <div className="flex flex-col items-end gap-2 flex-shrink-0">
                                                 <span className={`text-sm font-semibold px-2 py-1 rounded-full ${v.has_voted ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{v.has_voted ? 'Voted' : 'Pending'}</span>
-                                                <button onClick={() => handleDeleteVoter(v.id)} className="text-red-500 hover:text-red-700 text-xl pt-1"><i className="fas fa-trash"></i></button>
                                             </div>
                                        </div>
                                    );
@@ -1564,6 +1577,20 @@ const AdminPortal: React.FC = () => {
                             </form>
 
                             <div className="p-6 bg-gray-50 rounded-lg border">
+                                <h3 className="text-xl font-semibold mb-2 text-center">Generate Voting Codes</h3>
+                                <p className="text-center text-sm text-gray-500 mb-4">
+                                    Generate unique codes for all students who do not have one. Voters use these codes to log in.
+                                </p>
+                                <button 
+                                    type="button" 
+                                    onClick={handleBulkGenerateCodes}
+                                    disabled={loading || isVotingActive} 
+                                    className="w-full bg-slate-700 text-white font-bold py-3 rounded-lg hover:bg-slate-800 transition disabled:bg-slate-400 flex items-center justify-center gap-2">
+                                    {loading ? <><i className="fas fa-spinner fa-spin"></i> Processing...</> : <><i className="fas fa-key"></i> Generate for All Unassigned</>}
+                                </button>
+                            </div>
+
+                            <div className="p-6 bg-gray-50 rounded-lg border">
                                 <h3 className="text-xl font-semibold mb-2 text-center">Add Registrations in Bulk</h3>
                                 <p className="text-center text-sm text-gray-500 mb-4">
                                     Paste data below. Each entry on a new line.<br />
@@ -1593,7 +1620,7 @@ const AdminPortal: React.FC = () => {
                         
                         <div className="mt-8">
                             <h3 className="text-xl font-semibold mb-4 text-center">Approved List ({filteredRegistrations.length}/{registrations.length})</h3>
-                            <div className="max-w-xl mx-auto mb-4 relative">
+                            <div className="max-w-2xl mx-auto mb-4 relative">
                                <input
                                    type="text"
                                    placeholder="Search by name or registration number..."
@@ -1603,7 +1630,7 @@ const AdminPortal: React.FC = () => {
                                />
                                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             </div>
-                            <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2 max-w-xl mx-auto">
+                            <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2 max-w-2xl mx-auto">
                                 {registrationSearchLoading ? (
                                     <div className="flex justify-center items-center py-10">
                                        <i className="fas fa-spinner fa-spin text-3xl text-slate-500"></i>
@@ -1619,6 +1646,32 @@ const AdminPortal: React.FC = () => {
                                             <div className="flex-grow">
                                                 <p className="font-bold text-slate-800">{reg.student_name}</p>
                                                 <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                                            </div>
+                                            <div className="flex-shrink-0 w-28 text-center">
+                                                {reg.verification_code ? (
+                                                    <div>
+                                                        <p className="font-mono font-bold text-slate-800 text-base tracking-wider">{reg.verification_code}</p>
+                                                        <button 
+                                                            onClick={() => { 
+                                                                navigator.clipboard.writeText(reg.verification_code!); 
+                                                                const prevMessage = formMessage;
+                                                                setFormMessage({ type: 'success', text: 'Code copied!' });
+                                                                setTimeout(() => setFormMessage(prevMessage), 2000);
+                                                            }} 
+                                                            className="text-xs text-slate-500 hover:underline"
+                                                        >
+                                                            Copy Code
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleGenerateVerificationCode(reg.id)}
+                                                        disabled={isVotingActive || loading}
+                                                        className="bg-slate-100 text-slate-600 font-semibold py-1 px-3 rounded-lg hover:bg-slate-200 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        Generate
+                                                    </button>
+                                                )}
                                             </div>
                                             <div className="flex-shrink-0 space-x-1">
                                                 <button
@@ -1719,10 +1772,10 @@ const AdminPortal: React.FC = () => {
                             <div className="lg:col-span-2 space-y-8">
                                 {results.length > 0 ? (
                                     results.map(pos => (
-                                        <PositionRaceView 
+                                        <PositionVoteIndicator 
                                             key={pos.position} 
                                             positionResult={pos} 
-                                            updatedCandidates={updatedCandidates} 
+                                            isUpdated={updatedPositions.has(pos.position)} 
                                         />
                                     ))
                                 ) : (
@@ -2090,3 +2143,4 @@ const AdminPortal: React.FC = () => {
 };
 
 export default AdminPortal;
+
