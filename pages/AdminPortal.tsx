@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { supabase } from '../services/supabaseClient';
-import type { Director, Candidate, Voter, Admin } from '../types';
+import { supabase } from './services/supabaseClient';
+import type { Director, Candidate, Voter, Admin } from './types';
 
 const DEFAULT_CANDIDATE_PHOTO_URL = `data:image/svg+xml;charset=UTF-8,%3csvg width='150' height='150' viewBox='0 0 150 150' fill='none' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='150' height='150' rx='12' fill='%23F1F5F9'/%3e%3cpath d='M75 92.5C85.2269 92.5 93.5 84.2269 93.5 74C93.5 63.7731 85.2269 55.5 75 55.5C64.7731 55.5 56.5 63.7731 56.5 74C56.5 84.2269 64.7731 92.5 75 92.5Z' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3cpath d='M66.625 99.6875L62.5 125L75 112.5L87.5 125L83.375 99.625' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e`;
 
-type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS' | 'SECURITY';
+type AdminView = 'DASHBOARD' | 'DEADLINE' | 'CANDIDATES' | 'VOTERS' | 'VERIFIED' | 'REGISTRATIONS' | 'ADMINS' | 'RESULTS' | 'STATISTICS' | 'SECURITY';
 
 // Local types
 interface Position {
@@ -20,7 +20,6 @@ interface Registration {
     created_at: string;
     verification_code?: string | null;
 }
-
 
 // Helper component for Password Field
 const PasswordField: React.FC<{ value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; id: string; }> = ({ value, onChange, placeholder, id }) => {
@@ -249,6 +248,64 @@ const PositionVoteIndicator: React.FC<{ positionResult: any; isUpdated: boolean;
     );
 };
 
+const PasskeyPrompt: React.FC<{
+    viewName: string;
+    onSuccess: () => void;
+    onCancel: () => void;
+}> = ({ viewName, onSuccess, onCancel }) => {
+    const [passkey, setPasskey] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (passkey === 'ECCUNIMA') {
+            onSuccess();
+        } else {
+            setError('Incorrect passkey. Please try again.');
+            setPasskey('');
+        }
+    };
+
+    return (
+        <Page title="Access Restricted">
+            <div className="max-w-md mx-auto text-center">
+                <i className="fas fa-lock text-4xl text-slate-400 mb-4"></i>
+                <p className="text-lg text-slate-600 mb-6">
+                    The "{viewName}" page contains sensitive information.
+                    Please enter the passkey to proceed.
+                </p>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                     <PasswordField
+                        id="passkey-input"
+                        placeholder="Enter Passkey"
+                        value={passkey}
+                        onChange={(e) => {
+                            setPasskey(e.target.value);
+                            setError('');
+                        }}
+                    />
+                    {error && <p className="text-red-500 text-sm">{error}</p>}
+                    <div className="flex gap-4">
+                         <button
+                            type="button"
+                            onClick={onCancel}
+                            className="w-full bg-gray-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-600 transition"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="w-full bg-slate-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-slate-900 transition"
+                        >
+                            Unlock
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </Page>
+    );
+};
+
 
 const AdminPortal: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<Director | null>(null);
@@ -295,6 +352,7 @@ const AdminPortal: React.FC = () => {
     const [registrationSearchLoading, setRegistrationSearchLoading] = useState(false);
     const [filteredRegistrations, setFilteredRegistrations] = useState<Registration[]>([]);
     const [bulkRegData, setBulkRegData] = useState('');
+    const [showRegistrationList, setShowRegistrationList] = useState(false);
 
 
     // Voter management state
@@ -306,6 +364,10 @@ const AdminPortal: React.FC = () => {
 
     // Statistics View State
     const [recentVoters, setRecentVoters] = useState<{ registration_number: string; full_name: string; }[]>([]);
+
+    // Verified View State
+    const [verifiedVoters, setVerifiedVoters] = useState<(Pick<Registration, 'student_name' | 'registration_number'>)[]>([]);
+    const [verifiedSearchTerm, setVerifiedSearchTerm] = useState('');
 
     // Security View State
     const [securityData, setSecurityData] = useState<{
@@ -322,6 +384,10 @@ const AdminPortal: React.FC = () => {
     const [updatedPositions, setUpdatedPositions] = useState<Set<string>>(new Set());
     const prevResultsRef = useRef<any[]>();
 
+    // Passkey State
+    const PROTECTED_VIEWS: AdminView[] = ['VOTERS', 'REGISTRATIONS', 'RESULTS', 'VERIFIED'];
+    const [promptingForView, setPromptingForView] = useState<AdminView | null>(null);
+    const [unlockedViews, setUnlockedViews] = useState<Set<AdminView>>(new Set());
 
     // --- AUTHENTICATION ---
     const handleLogin = async (e: React.FormEvent) => {
@@ -380,13 +446,11 @@ const AdminPortal: React.FC = () => {
     }, []);
     
     const fetchCandidates = useCallback(async () => {
-        // FIX: For consistency, explicitly add ordering options.
         const { data } = await supabase.from('candidates').select('*').order('created_at', { ascending: true });
         setCandidates(data || []);
     }, []);
 
     const fetchPositions = useCallback(async () => {
-        // FIX: For consistency, explicitly add ordering options.
         const { data } = await supabase.from('positions').select('*').order('name', { ascending: true });
         setPositions(data || []);
     }, []);
@@ -439,10 +503,25 @@ const AdminPortal: React.FC = () => {
     setRegistrations(allRegistrations);
 }, []);
     const fetchAdmins = useCallback(async () => {
-        // FIX: Explicitly add ordering options to resolve potential API inconsistencies.
         const { data } = await supabase.from('directors').select('*').order('created_at', { ascending: true });
         setAdmins(data || []);
     }, []);
+
+    const fetchVerifiedVoters = useCallback(async () => {
+      const { data, error } = await supabase
+        .from('registrations')
+        .select('student_name, registration_number')
+        .not('verification_code', 'is', null)
+        .order('student_name', { ascending: true });
+      
+      if (error) {
+        console.error("Error fetching verified voters:", error);
+        setVerifiedVoters([]);
+      } else {
+        setVerifiedVoters(data || []);
+      }
+    }, []);
+
 
     const getFinalVoteCounts = useCallback(async () => {
     let allCandidates: Candidate[] = [];
@@ -461,12 +540,9 @@ const AdminPortal: React.FC = () => {
     }
 
     if (allCandidates.length === 0) {
-        // Fix: The Map constructor was throwing an error, likely due to a toolchain issue.
-        // Passing an empty array to the constructor is a safe way to create an empty map.
         return { candidates: [], voteCounts: new Map<string, number>([]), totalVotes: 0 };
     }
 
-    // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
     const candidateIdMap = new Map<string, string>([]);
     allCandidates.forEach(c => {
         const key = `${c.position}_${c.name}`;
@@ -611,7 +687,6 @@ const AdminPortal: React.FC = () => {
 }, []);
 
     const fetchSecurityData = useCallback(async () => {
-        // FIX: For consistency, explicitly add ordering options and sort by descending to match client-side logic.
         const { data: votersData, error: votersError } = await supabase.from('voters').select('*').order('created_at', { ascending: false });
         const { data: votesData, error: votesError } = await supabase.from('votes').select('voter_id, created_at');
 
@@ -620,7 +695,6 @@ const AdminPortal: React.FC = () => {
             return;
         }
 
-        // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
         const registrationMap = new Map<string, Voter[]>([]);
         votersData?.forEach(voter => {
             if (voter.registration_number) {
@@ -635,7 +709,6 @@ const AdminPortal: React.FC = () => {
             .filter(([_, votersList]) => votersList.length > 1)
             .map(([registration_number, voters]) => ({ registration_number, voters }));
 
-        // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
         const voteTimeMap = new Map<string, string>([]);
         votesData?.forEach(vote => {
             voteTimeMap.set(vote.voter_id, vote.created_at);
@@ -660,8 +733,8 @@ const AdminPortal: React.FC = () => {
     }, []);
 
     const loadAllData = useCallback(async () => {
-        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchPositions(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters(), fetchSecurityData()]);
-    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchPositions, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters, fetchSecurityData]);
+        await Promise.all([fetchDashboardStats(), fetchDeadline(), fetchRegistrationDeadline(), fetchCandidates(), fetchPositions(), fetchVoters(), fetchRegistrations(), fetchAdmins(), fetchResults(), fetchRecentVoters(), fetchSecurityData(), fetchVerifiedVoters()]);
+    }, [fetchDashboardStats, fetchDeadline, fetchRegistrationDeadline, fetchCandidates, fetchPositions, fetchVoters, fetchRegistrations, fetchAdmins, fetchResults, fetchRecentVoters, fetchSecurityData, fetchVerifiedVoters]);
 
     useEffect(() => {
         if (currentUser) {
@@ -676,6 +749,7 @@ const AdminPortal: React.FC = () => {
             loadAllData();
             setNewVoteToast('A new vote has been registered!');
             
+            // FIX: The state setter for a boolean state requires an argument.
             setFlashVotesCard(true);
             setTimeout(() => setFlashVotesCard(false), 2000);
             
@@ -709,9 +783,16 @@ const AdminPortal: React.FC = () => {
     }, [view, loadAllData, electionStatus]);
 
     useEffect(() => {
+        if (!currentUser) return;
+        if (view === 'DASHBOARD') {
+            const interval = setInterval(fetchDashboardStats, 5000);
+            return () => clearInterval(interval);
+        }
+    }, [view, currentUser, fetchDashboardStats]);
+
+    useEffect(() => {
         if (view === 'STATISTICS' && prevResultsRef.current && prevResultsRef.current.length > 0) {
             const updates = new Set<string>();
-            // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
             const prevPositionVoteMap = new Map<string, number>([]);
             prevResultsRef.current.forEach(pos => {
                 prevPositionVoteMap.set(pos.position, pos.totalVotes);
@@ -804,6 +885,11 @@ const AdminPortal: React.FC = () => {
             clearTimeout(handler);
         };
     }, [registrationSearchTerm, registrations]);
+    
+    const filteredVerifiedVoters = verifiedVoters.filter(voter => 
+        voter.student_name.toLowerCase().includes(verifiedSearchTerm.toLowerCase()) ||
+        voter.registration_number.toLowerCase().includes(verifiedSearchTerm.toLowerCase())
+    );
 
     // --- ACTIONS ---
 
@@ -1145,7 +1231,6 @@ const AdminPortal: React.FC = () => {
                 throw new Error("All students already have a verification code.");
             }
 
-            // Deduplicate based on the 'id' to prevent the "cannot affect row a second time" error.
             const uniqueRegistrations = Array.from(new Map(unassignedRegistrations.map(reg => [reg.id, reg])).values());
 
             const updates = uniqueRegistrations.map(reg => ({
@@ -1268,6 +1353,23 @@ const AdminPortal: React.FC = () => {
     });
 
     const renderView = () => {
+        if (promptingForView) {
+            return (
+                <PasskeyPrompt
+                    viewName={promptingForView}
+                    onSuccess={() => {
+                        setUnlockedViews(prev => new Set(prev).add(promptingForView));
+                        setView(promptingForView);
+                        setPromptingForView(null);
+                    }}
+                    onCancel={() => {
+                        setPromptingForView(null);
+                        setView('DASHBOARD');
+                    }}
+                />
+            );
+        }
+
         switch (view) {
             case 'DASHBOARD': return (
                 <Page title="Election Dashboard">
@@ -1441,7 +1543,6 @@ const AdminPortal: React.FC = () => {
                 const physicalVotersCount = voters.filter(v => v.voter_type === 'physical').length;
                 const onlineVotersCount = voters.length - physicalVotersCount;
 
-                // FIX: The Map constructor requires an argument in this environment. Pass an empty array.
                 const voterNumberMap = new Map<string, number>([]);
                 voters
                     .slice()
@@ -1455,7 +1556,7 @@ const AdminPortal: React.FC = () => {
                        <div className="max-w-xl mx-auto mb-8 p-6 bg-slate-100 rounded-lg border border-slate-200 text-center">
                             <i className="fas fa-info-circle text-slate-500 text-2xl mb-2"></i>
                             <h3 className="text-xl font-semibold mb-2 text-slate-800">Voter Management</h3>
-                            <p className="text-slate-700">Voters log in using unique verification codes. Manage eligible students and generate their codes in the <button onClick={() => setView('REGISTRATIONS')} className="font-bold text-slate-800 hover:underline">Registrations</button> tab. This page lists all students who have successfully logged into the voting portal.</p>
+                            <p className="text-slate-700">This page lists all students who have successfully logged into the voting portal. Manage eligible students and generate their codes in the <button onClick={() => handleNavClick('REGISTRATIONS')} className="font-bold text-slate-800 hover:underline">Registrations</button> tab.</p>
                        </div>
                        <h3 className="text-xl font-semibold mb-4 text-center">Registered Voters</h3>
                        
@@ -1549,6 +1650,44 @@ const AdminPortal: React.FC = () => {
                    </Page>
                 );
             }
+            case 'VERIFIED': {
+                return (
+                    <Page title="Verified Voters">
+                         <div className="max-w-2xl mx-auto">
+                            <div className="mb-6 p-4 bg-slate-100 rounded-lg border border-slate-200 text-center">
+                                <h3 className="text-xl font-semibold text-slate-800">Total Verified: {verifiedVoters.length}</h3>
+                                <p className="text-slate-600 text-sm mt-1">This list includes all students for whom a verification code has been generated.</p>
+                            </div>
+                            <div className="mb-4 relative">
+                               <input
+                                   type="text"
+                                   placeholder="Search by name or registration number..."
+                                   value={verifiedSearchTerm}
+                                   onChange={e => setVerifiedSearchTerm(e.target.value)}
+                                   className="w-full p-3 pl-10 border rounded-lg"
+                               />
+                               <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                            </div>
+                            <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2">
+                                {filteredVerifiedVoters.length === 0 ? (
+                                    <p className="text-center text-gray-500 py-8">No verified voters found.</p>
+                                ) : (
+                                    filteredVerifiedVoters.map((voter, index) => (
+                                        <div key={voter.registration_number + index} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                            <span className="font-mono text-gray-500 w-8 text-center flex-shrink-0">{index + 1}.</span>
+                                            <i className="fas fa-user-check text-green-500 text-xl"></i>
+                                            <div className="flex-grow">
+                                                <p className="font-bold text-slate-800">{voter.student_name}</p>
+                                                <p className="text-gray-600 font-mono text-sm">{voter.registration_number}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </Page>
+                );
+            }
             case 'REGISTRATIONS': {
                 const isVotingActive = electionStatus === 'Active';
                 return (
@@ -1630,73 +1769,74 @@ const AdminPortal: React.FC = () => {
                                />
                                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                             </div>
-                            <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2 max-w-2xl mx-auto">
-                                {registrationSearchLoading ? (
-                                    <div className="flex justify-center items-center py-10">
-                                       <i className="fas fa-spinner fa-spin text-3xl text-slate-500"></i>
-                                    </div>
-                                ) : registrations.length === 0 ? (
-                                    <p className="text-center text-gray-500">No registration numbers added yet.</p>
-                                ) : filteredRegistrations.length === 0 ? (
-                                    <p className="text-center text-gray-500">No registrations found matching your search.</p>
-                                ) : (
-                                    filteredRegistrations.map((reg, index) => (
-                                        <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
-                                            <span className="font-mono text-gray-500 w-8 text-center flex-shrink-0">{index + 1}.</span>
-                                            <div className="flex-grow">
-                                                <p className="font-bold text-slate-800">{reg.student_name}</p>
-                                                <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
-                                            </div>
-                                            <div className="flex-shrink-0 w-28 text-center">
-                                                {reg.verification_code ? (
-                                                    <div>
-                                                        <p className="font-mono font-bold text-slate-800 text-base tracking-wider">{reg.verification_code}</p>
-                                                        <button 
-                                                            onClick={() => { 
-                                                                navigator.clipboard.writeText(reg.verification_code!); 
-                                                                const prevMessage = formMessage;
-                                                                setFormMessage({ type: 'success', text: 'Code copied!' });
-                                                                setTimeout(() => setFormMessage(prevMessage), 2000);
-                                                            }} 
-                                                            className="text-xs text-slate-500 hover:underline"
-                                                        >
-                                                            Copy Code
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <button
-                                                        onClick={() => handleGenerateVerificationCode(reg.id)}
-                                                        disabled={isVotingActive || loading}
-                                                        className="bg-slate-100 text-slate-600 font-semibold py-1 px-3 rounded-lg hover:bg-slate-200 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                                    >
-                                                        Generate
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="flex-shrink-0 space-x-1">
-                                                <button
-                                                    onClick={() => handleEditRegistration(reg)}
-                                                    disabled={isVotingActive}
-                                                    className="text-gray-400 hover:text-slate-600 w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
-                                                    aria-label="Edit Registration"
-                                                    title="Edit Registration"
-                                                >
-                                                    <i className="fas fa-pencil-alt text-sm"></i>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteRegistration(reg.id)}
-                                                    disabled={isVotingActive}
-                                                    className="text-gray-400 hover:text-red-600 w-8 h-8 rounded-full hover:bg-red-100 flex items-center justify-center transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
-                                                    aria-label="Delete Registration"
-                                                    title="Delete Registration"
-                                                >
-                                                    <i className="fas fa-trash-alt text-sm"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
+
+                             <div className="text-center mb-4">
+                                <button
+                                    onClick={() => setShowRegistrationList(!showRegistrationList)}
+                                    className="bg-slate-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-slate-700 transition"
+                                >
+                                    {showRegistrationList ? <><i className="fas fa-eye-slash mr-2"></i>Hide List</> : <><i className="fas fa-eye mr-2"></i>Show List</>}
+                                </button>
                             </div>
+
+                            {showRegistrationList && (
+                                <div className="space-y-3 max-h-[32rem] overflow-y-auto p-2 max-w-2xl mx-auto" style={{ userSelect: 'none', WebkitUserSelect: 'none', MozUserSelect: 'none' }} onContextMenu={(e) => e.preventDefault()}>
+                                    {registrationSearchLoading ? (
+                                        <div className="flex justify-center items-center py-10">
+                                           <i className="fas fa-spinner fa-spin text-3xl text-slate-500"></i>
+                                        </div>
+                                    ) : registrations.length === 0 ? (
+                                        <p className="text-center text-gray-500">No registration numbers added yet.</p>
+                                    ) : filteredRegistrations.length === 0 ? (
+                                        <p className="text-center text-gray-500">No registrations found matching your search.</p>
+                                    ) : (
+                                        filteredRegistrations.map((reg, index) => (
+                                            <div key={reg.id} className="flex items-center gap-4 p-4 bg-white border rounded-lg shadow-sm">
+                                                <span className="font-mono text-gray-500 w-8 text-center flex-shrink-0">{index + 1}.</span>
+                                                <div className="flex-grow">
+                                                    <p className="font-bold text-slate-800">{reg.student_name}</p>
+                                                    <p className="text-gray-600 font-mono text-sm">{reg.registration_number}</p>
+                                                </div>
+                                                <div className="flex-shrink-0 w-28 text-center">
+                                                    {reg.verification_code ? (
+                                                        <div>
+                                                            <p className="font-mono font-bold text-slate-800 text-base tracking-wider">{reg.verification_code}</p>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleGenerateVerificationCode(reg.id)}
+                                                            disabled={isVotingActive || loading}
+                                                            className="bg-slate-100 text-slate-600 font-semibold py-1 px-3 rounded-lg hover:bg-slate-200 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        >
+                                                            Generate
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="flex-shrink-0 space-x-1">
+                                                    <button
+                                                        onClick={() => handleEditRegistration(reg)}
+                                                        disabled={isVotingActive}
+                                                        className="text-gray-400 hover:text-slate-600 w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                        aria-label="Edit Registration"
+                                                        title="Edit Registration"
+                                                    >
+                                                        <i className="fas fa-pencil-alt text-sm"></i>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteRegistration(reg.id)}
+                                                        disabled={isVotingActive}
+                                                        className="text-gray-400 hover:text-red-600 w-8 h-8 rounded-full hover:bg-red-100 flex items-center justify-center transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                                        aria-label="Delete Registration"
+                                                        title="Delete Registration"
+                                                    >
+                                                        <i className="fas fa-trash-alt text-sm"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </Page>
                 );
@@ -1994,15 +2134,26 @@ const AdminPortal: React.FC = () => {
         );
     }
 
-    const NavLink: React.FC<{ icon: string; label: AdminView; currentView: AdminView; setView: (view: AdminView) => void; }> = ({ icon, label, currentView, setView }) => (
+    const NavLink: React.FC<{ icon: string; label: AdminView; currentView: AdminView; onClick: (view: AdminView) => void; }> = ({ icon, label, currentView, onClick }) => (
         <li>
-            <a href="#" onClick={(e) => { e.preventDefault(); setView(label); setSidebarOpen(false); setFormMessage(null); }}
-               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label ? 'bg-slate-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
+            <a href="#" onClick={(e) => { e.preventDefault(); onClick(label); }}
+               className={`flex items-center gap-4 px-4 py-3 rounded-lg transition-colors text-lg ${currentView === label && !promptingForView ? 'bg-slate-600 text-white' : 'text-gray-300 hover:bg-slate-700 hover:text-white'}`}>
                 <i className={`fas ${icon} w-6 text-center`}></i>
                 <span>{label.charAt(0) + label.slice(1).toLowerCase()}</span>
             </a>
         </li>
     );
+
+    const handleNavClick = (targetView: AdminView) => {
+        setFormMessage(null);
+        if (PROTECTED_VIEWS.includes(targetView) && !unlockedViews.has(targetView)) {
+            setPromptingForView(targetView);
+        } else {
+            setView(targetView);
+            setPromptingForView(null);
+        }
+        setSidebarOpen(false);
+    };
 
     return (
       <>
@@ -2114,15 +2265,16 @@ const AdminPortal: React.FC = () => {
                     <nav className="p-4 pt-8">
                         <h2 className="text-2xl font-bold text-center mb-8 border-b border-slate-600 pb-4">Voting Panel</h2>
                         <ul className="space-y-3">
-                            <NavLink icon="fa-home" label="DASHBOARD" currentView={view} setView={setView} />
-                            <NavLink icon="fa-clock" label="DEADLINE" currentView={view} setView={setView} />
-                            <NavLink icon="fa-users" label="CANDIDATES" currentView={view} setView={setView} />
-                            <NavLink icon="fa-user-plus" label="VOTERS" currentView={view} setView={setView} />
-                            <NavLink icon="fa-id-card" label="REGISTRATIONS" currentView={view} setView={setView} />
-                            <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} setView={setView} />
-                            <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} setView={setView} />
-                            <NavLink icon="fa-chart-pie" label="STATISTICS" currentView={view} setView={setView} />
-                            <NavLink icon="fa-shield-alt" label="SECURITY" currentView={view} setView={setView} />
+                            <NavLink icon="fa-home" label="DASHBOARD" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-clock" label="DEADLINE" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-users" label="CANDIDATES" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-user-plus" label="VOTERS" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-user-check" label="VERIFIED" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-id-card" label="REGISTRATIONS" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-user-shield" label="ADMINS" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-chart-bar" label="RESULTS" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-chart-pie" label="STATISTICS" currentView={view} onClick={handleNavClick} />
+                            <NavLink icon="fa-shield-alt" label="SECURITY" currentView={view} onClick={handleNavClick} />
                         </ul>
                     </nav>
                 </aside>
@@ -2143,4 +2295,3 @@ const AdminPortal: React.FC = () => {
 };
 
 export default AdminPortal;
-
