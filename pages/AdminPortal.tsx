@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { supabase } from './services/supabaseClient.ts';
+import { supabase } from "../services/supabaseClient";
 import type { Director, Candidate, Voter, Admin } from './types';
 
 const DEFAULT_CANDIDATE_PHOTO_URL = `data:image/svg+xml;charset=UTF-8,%3csvg width='150' height='150' viewBox='0 0 150 150' fill='none' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='150' height='150' rx='12' fill='%23F1F5F9'/%3e%3cpath d='M75 92.5C85.2269 92.5 93.5 84.2269 93.5 74C93.5 63.7731 85.2269 55.5 75 55.5C64.7731 55.5 56.5 63.7731 56.5 74C56.5 84.2269 64.7731 92.5 75 92.5Z' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3cpath d='M66.625 99.6875L62.5 125L75 112.5L87.5 125L83.375 99.625' stroke='%2394A3B8' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e`;
